@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+.material-symbols-outlined{
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: 20px; line-height: 1; vertical-align: middle;
+}
+
+/* Shell oscuro + contenido claro (igual idea del POS) */
+:root{
+  --header-h: 56px;
+  --sidebar-w: 232px;
+  --sidebar-w-compact: 64px;
+
+  --shell-bg: #1c2233;
+  --shell-border: rgba(255,255,255,0.10);
+  --shell-text: #eaf0ff;
+  --shell-text-muted: #bfc7e8;
+  --chrome-hover: rgba(255,255,255,0.08);
+
+  --content-bg: linear-gradient(180deg, #f7f9fc, #eef3fb 45%, #eaf1ff);
+  --surface: #ffffff;
+  --surface-br: #e6edf7;
+
+  --text: #1f2937;
+  --muted: #6b7280;
+
+  --brand-300: #93c5fd;
+  --brand-500: #3b82f6;
+  --brand-600: #2e66d6;
+
+  --thead-bg:  #f1f6ff;
+}
+
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--content-bg); color: var(--text); }
+
+body.has-collapsed{ --sidebar-w: var(--sidebar-w-compact); }
+
+a { color: var(--brand-600); }
+a:hover { color: var(--brand-500); }
+
+.form-control, .form-select{
+  background: var(--surface);
+  border: 1px solid var(--surface-br);
+  color: var(--text);
+}
+.form-control:focus, .form-select:focus{
+  border-color: var(--brand-300);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.12);
+  outline: none;
+}
+
+.card{
+  background: var(--surface);
+  border: 1px solid var(--surface-br);
+  box-shadow: 0 10px 24px rgba(16,24,40,0.06);
+}
+
+.table thead th{
+  background: var(--thead-bg);
+  color: #0f1f3d;
+  border-bottom-color: var(--surface-br);
+}
+.table tbody tr:nth-child(odd){ background-color: #fbfdff; }
+.table tbody tr:hover{ background-color: #f2f7ff; }
