@@ -71,3 +71,17 @@ export async function getEmpresaUsuarios(idEmpresa: number) {
   const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/usuarios`);
   return data as { ok: boolean; id_empresa: number; items: EmpresaUsuarioItem[] };
 }
+
+export type EmpresaAdminUsuarioItem = {
+  id_usuario: number;
+  id_empresa: number;
+  nombre: string;
+  apellido?: string | null;
+  email: string;
+  estado: number;
+};
+
+export async function getEmpresaUsuarioAdmin(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/usuario-admin`);
+  return data as { ok: boolean; id_empresa: number; item: EmpresaAdminUsuarioItem };
+}
