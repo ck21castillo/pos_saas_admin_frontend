@@ -120,12 +120,12 @@ const OnboardingPage: React.FC = () => {
             const out = await createInvitation({ email, days });
             setLastInvite({ email: out.email, invite_code: out.invite_code, expires_at: out.expires_at });
 
-            // Marcar solicitud como APROBADA (aprobaciÃ³n real = invitaciÃ³n generada)
+            // Marcar solicitud como APROBADA (aprobación real = invitación generada)
             if (markApprovedRequestId) {
                 try {
                     await updateInvitationRequest(markApprovedRequestId, {
                         estado: 'APROBADA',
-                        notas: approvedNotes?.trim() || 'InvitaciÃ³n generada',
+                        notas: approvedNotes?.trim() || 'Invitación generada',
                     });
                 } catch {
                     // no bloquea
@@ -183,9 +183,9 @@ const OnboardingPage: React.FC = () => {
         if (!lastInvite?.invite_code) return;
         try {
             await navigator.clipboard.writeText(lastInvite.invite_code);
-            alert('Copiado âœ…');
+            alert('Copiado ✅');
         } catch {
-            window.prompt('Copia el cÃ³digo:', lastInvite.invite_code);
+            window.prompt('Copia el código:', lastInvite.invite_code);
         }
     };
 
@@ -224,9 +224,9 @@ const OnboardingPage: React.FC = () => {
                     <div className="card-body">
                         <div className="d-flex flex-wrap gap-3 align-items-center justify-content-between">
                             <div>
-                                <div className="fw-bold">CÃ³digo generado (mostrar/copy una sola vez)</div>
+                                <div className="fw-bold">Código generado (mostrar/copiar una sola vez)</div>
                                 <div className="text-muted" style={{ fontSize: 13 }}>
-                                    Email: <span className="text-light">{lastInvite.email}</span> Â· Expira: {fmtDate(lastInvite.expires_at)}
+                                    Email: <span className="text-light">{lastInvite.email}</span> · Expira: {fmtDate(lastInvite.expires_at)}
                                 </div>
                                 <div
                                     className="mt-2"
@@ -270,7 +270,7 @@ const OnboardingPage: React.FC = () => {
                             </div>
 
                             <div className="text-muted" style={{ fontSize: 13 }}>
-                                Tip: â€œGenerar cÃ³digoâ€ aprueba + genera invitaciÃ³n (el cÃ³digo solo se muestra una vez).
+                                Tip: "Generar código" aprueba + genera invitación (el código solo se muestra una vez).
                             </div>
                         </div>
 
@@ -313,7 +313,7 @@ const OnboardingPage: React.FC = () => {
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td>{r.empresa_nombre ?? <span className="text-muted">â€”</span>}</td>
+                                                <td>{r.empresa_nombre ?? <span className="text-muted">—</span>}</td>
                                                 <td>
                                                     <span
                                                         className={
@@ -344,7 +344,7 @@ const OnboardingPage: React.FC = () => {
                                                             type="button"
                                                             onClick={() => doGenerateFromRequest(r)}
                                                         >
-                                                            Generar cÃ³digo
+                                                            Generar código
                                                         </button>
                                                     </div>
                                                 </td>
@@ -363,7 +363,7 @@ const OnboardingPage: React.FC = () => {
                     <div className="col-12 col-lg-5">
                         <div className="card">
                             <div className="card-body">
-                                <h5 className="card-title mb-3">Generar invitaciÃ³n</h5>
+                                <h5 className="card-title mb-3">Generar invitación</h5>
 
                                 {invError && <div className="alert alert-danger">{invError}</div>}
 
@@ -380,7 +380,7 @@ const OnboardingPage: React.FC = () => {
                                 </div>
 
                                 <div className="mb-3">
-                                    <label className="form-label">DÃ­as de vigencia</label>
+                                    <label className="form-label">Días de vigencia</label>
                                     <input
                                         className="form-control"
                                         value={String(invDays)}
@@ -411,7 +411,7 @@ const OnboardingPage: React.FC = () => {
                                 </div>
 
                                 <div className="text-muted mt-3" style={{ fontSize: 13 }}>
-                                    Nota: el backend devuelve el cÃ³digo una sola vez. Si lo pierdes, genera una nueva invitaciÃ³n.
+                                    Nota: el backend devuelve el código una sola vez. Si lo pierdes, genera una nueva invitación.
                                 </div>
                             </div>
                         </div>
@@ -421,7 +421,7 @@ const OnboardingPage: React.FC = () => {
                         <div className="card">
                             <div className="card-body">
                                 <div className="d-flex align-items-center justify-content-between mb-2">
-                                    <h5 className="card-title mb-0">HistÃ³rico de invitaciones</h5>
+                                    <h5 className="card-title mb-0">Histórico de invitaciones</h5>
                                     <button
                                         className="btn btn-sm btn-outline-secondary"
                                         type="button"
@@ -463,7 +463,7 @@ const OnboardingPage: React.FC = () => {
                                                         <td>{fmtDate(r.created_at)}</td>
                                                         <td>{fmtDate(r.expires_at)}</td>
                                                         <td>
-                                                            {r.used_at ? <span className="badge bg-success">SÃ­</span> : <span className="badge bg-secondary">No</span>}
+                                                            {r.used_at ? <span className="badge bg-success">Sí</span> : <span className="badge bg-secondary">No</span>}
                                                         </td>
                                                     </tr>
                                                 ))
