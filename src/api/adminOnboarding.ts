@@ -6,6 +6,9 @@ export type InvitationRequestRow = {
   id_request: number;
   email: string;
   empresa_nombre: string | null;
+  telefono: string | null;
+  plan_solicitado: string | null;
+  mensaje: string | null;
   estado: InvitationRequestEstado;
   created_at: string;
   ip: string | null;
