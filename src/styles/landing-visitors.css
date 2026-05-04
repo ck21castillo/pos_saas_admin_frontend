@@ -1,0 +1,132 @@
+.lv-head-right {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.lv-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lv-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.lv-kpi-card {
+  border: 1px solid var(--surface-br);
+  border-radius: 12px;
+  padding: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.lv-kpi-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.lv-kpi-value {
+  margin-top: 4px;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #0f1f3d;
+}
+
+.lv-kpi-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-kpi-alt {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.lv-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 12px;
+}
+
+.lv-panel {
+  border: 1px solid var(--surface-br);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.lv-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--surface-br);
+  background: #f8fbff;
+}
+
+.lv-panel-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f1f3d;
+}
+
+.lv-panel-head span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lv-bar-wrap {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.lv-bar-label {
+  font-size: 12px;
+  color: #1f2937;
+}
+
+.lv-bar-track {
+  height: 9px;
+  border-radius: 999px;
+  background: #e7eef9;
+  overflow: hidden;
+}
+
+.lv-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0ea5e9, #2563eb);
+}
+
+@media (max-width: 1100px) {
+  .lv-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .lv-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
