@@ -11,6 +11,7 @@ const EmpresaDetailPage = lazy(() => import('../pages/empresas/EmpresaDetailPage
 const OnboardingPage = lazy(() => import('../pages/onboarding/OnboardingPage'));
 const HelpTicketsPage = lazy(() => import('../pages/help/HelpTicketsPage'));
 const NotificationsPage = lazy(() => import('../pages/notifications/NotificationsPage'));
+const LandingVisitorsPage = lazy(() => import('../pages/analytics/LandingVisitorsPage'));
 
 const RouteLoader: React.FC = () => <div style={{ padding: 16 }}>Cargando...</div>;
 
@@ -40,6 +41,7 @@ export default function AppRouter() {
                         <Route path="/onboarding" element={<OnboardingPage />} />
                         <Route path="/ayuda" element={<HelpTicketsPage />} />
                         <Route path="/notificaciones" element={<NotificationsPage />} />
+                        <Route path="/analytics/landing" element={<LandingVisitorsPage />} />
                     </Route>
                 </Route>
 

@@ -35,6 +35,12 @@ export default function AdminSidebar() {
                             <span className="label">Notificaciones</span>
                         </NavLink>
                     </li>
+                    <li>
+                        <NavLink to="/analytics/landing" className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}>
+                            <MI name="monitoring" />
+                            <span className="label">Visitantes</span>
+                        </NavLink>
+                    </li>
 
                 </ul>
 
