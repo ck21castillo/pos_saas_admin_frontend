@@ -1,4 +1,5 @@
 import adminClient from './adminClient';
+import type { AxiosRequestConfig } from 'axios';
 
 export type InvitationRequestEstado = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA';
 export type InvitationEmailTemplate = 'cliente' | 'meta';
@@ -17,6 +18,15 @@ export type InvitationRequestRow = {
   notas: string | null;
 };
 
+type InvitationRequestApiRow = InvitationRequestRow & {
+  message?: string | null;
+  mensaje_adicional?: string | null;
+  additional_message?: string | null;
+  comentario?: string | null;
+  comentarios?: string | null;
+  observaciones?: string | null;
+};
+
 export type InvitationRow = {
   id_invitation: number;
   email: string;
@@ -28,9 +38,35 @@ export type InvitationRow = {
   used_by_user_id: number | null;
 };
 
-export async function listInvitationRequests(estado: InvitationRequestEstado = 'PENDIENTE') {
-  const { data } = await adminClient.get('/onboarding/requests', { params: { estado } });
-  return (data?.rows ?? []) as InvitationRequestRow[];
+function firstText(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function normalizeInvitationRequestRow(row: InvitationRequestApiRow): InvitationRequestRow {
+  return {
+    ...row,
+    mensaje: firstText(
+      row.mensaje,
+      row.message,
+      row.mensaje_adicional,
+      row.additional_message,
+      row.comentario,
+      row.comentarios,
+      row.observaciones
+    ),
+  };
+}
+
+export async function listInvitationRequests(
+  estado: InvitationRequestEstado = 'PENDIENTE',
+  config?: Pick<AxiosRequestConfig, 'signal'>
+) {
+  const { data } = await adminClient.get('/onboarding/requests', { ...config, params: { estado } });
+  return ((data?.rows ?? []) as InvitationRequestApiRow[]).map(normalizeInvitationRequestRow);
 }
 
 export async function updateInvitationRequest(
@@ -55,8 +91,9 @@ export async function createInvitation(payload: { email: string; days?: number; 
   };
 }
 
-export async function listInvitations(email?: string) {
+export async function listInvitations(email?: string, config?: Pick<AxiosRequestConfig, 'signal'>) {
   const { data } = await adminClient.get('/onboarding/invitations', {
+    ...config,
     params: email ? { email } : undefined,
   });
   return (data?.rows ?? []) as InvitationRow[];

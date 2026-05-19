@@ -5,10 +5,12 @@ import { store } from '../store/store';
 import type { RootState } from '../store/store';
 
 const API_URL = import.meta.env.VITE_ADMIN_API_URL || 'http://localhost/pos_saas_admin/public';
+const REQUEST_TIMEOUT_MS = 15000;
 
 const adminClient = axios.create({
   baseURL: API_URL,
   withCredentials: true,
+  timeout: REQUEST_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
 });
 
