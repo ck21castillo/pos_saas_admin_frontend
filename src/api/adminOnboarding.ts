@@ -1,6 +1,7 @@
 import adminClient from './adminClient';
 
 export type InvitationRequestEstado = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA';
+export type InvitationEmailTemplate = 'cliente' | 'meta';
 
 export type InvitationRequestRow = {
   id_request: number;
@@ -40,7 +41,7 @@ export async function updateInvitationRequest(
   return data;
 }
 
-export async function createInvitation(payload: { email: string; days?: number }) {
+export async function createInvitation(payload: { email: string; days?: number; email_template?: InvitationEmailTemplate }) {
   const { data } = await adminClient.post('/onboarding/invitations', payload);
   return data as {
     ok: boolean;
@@ -48,6 +49,9 @@ export async function createInvitation(payload: { email: string; days?: number }
     expires_at: string;
     invite_code: string;
     email: string;
+    email_template: InvitationEmailTemplate;
+    email_sent: boolean;
+    email_error: string | null;
   };
 }
 
