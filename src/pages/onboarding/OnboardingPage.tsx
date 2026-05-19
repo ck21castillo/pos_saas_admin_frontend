@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
     createInvitation,
@@ -10,9 +10,12 @@ import {
     type InvitationRow,
     updateInvitationRequest,
 } from '../../api/adminOnboarding';
+import '../../styles/onboarding.css';
 
 type ApiErrorLike = {
+    code?: string;
     message?: string;
+    name?: string;
     response?: {
         data?: {
             error?: string;
@@ -24,7 +27,14 @@ type ApiErrorLike = {
 function getErrorMessage(error: unknown, fallback: string) {
     if (!error || typeof error !== 'object') return fallback;
     const e = error as ApiErrorLike;
+    if (e.code === 'ECONNABORTED') return 'La carga tardo demasiado. Revisa el backend e intenta recargar.';
     return e.response?.data?.error ?? e.response?.data?.message ?? e.message ?? fallback;
+}
+
+function isCanceledRequest(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const e = error as ApiErrorLike;
+    return e.code === 'ERR_CANCELED' || e.name === 'CanceledError' || e.name === 'AbortError';
 }
 
 function parseRequestEstado(value: string): InvitationRequestEstado {
@@ -54,6 +64,12 @@ function parseEmailTemplate(value: string): InvitationEmailTemplate {
 
 function templateLabel(value: InvitationEmailTemplate | string | null | undefined): string {
     return value === 'meta' ? 'Meta' : 'Cliente real';
+}
+
+function compactText(value: string | null | undefined, max = 150): string {
+    const text = String(value ?? '').trim();
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1).trim()}...`;
 }
 
 function escapeHtml(value: string): string {
@@ -93,43 +109,81 @@ const OnboardingPage: React.FC = () => {
         email_error: string | null;
     }>(null);
 
-    const loadRequests = async () => {
+    const reqAbortRef = useRef<AbortController | null>(null);
+    const invAbortRef = useRef<AbortController | null>(null);
+    const reqRunRef = useRef(0);
+    const invRunRef = useRef(0);
+
+    const loadRequests = useCallback(async () => {
+        const runId = reqRunRef.current + 1;
+        reqRunRef.current = runId;
+        reqAbortRef.current?.abort();
+        const controller = new AbortController();
+        reqAbortRef.current = controller;
+
         setReqError(null);
         setReqLoading(true);
         try {
-            const rows = await listInvitationRequests(reqEstado);
+            const rows = await listInvitationRequests(reqEstado, { signal: controller.signal });
+            if (runId !== reqRunRef.current) return;
             setReqRows(rows);
         } catch (error: unknown) {
+            if (isCanceledRequest(error) || runId !== reqRunRef.current) return;
             setReqError(getErrorMessage(error, 'No se pudieron cargar las solicitudes'));
         } finally {
-            setReqLoading(false);
+            if (runId === reqRunRef.current) {
+                setReqLoading(false);
+                if (reqAbortRef.current === controller) reqAbortRef.current = null;
+            }
         }
-    };
+    }, [reqEstado]);
 
-    const loadInvitations = async (email?: string) => {
+    const loadInvitations = useCallback(async (email?: string) => {
+        const runId = invRunRef.current + 1;
+        invRunRef.current = runId;
+        invAbortRef.current?.abort();
+        const controller = new AbortController();
+        invAbortRef.current = controller;
+
         setInvError(null);
         setInvLoading(true);
         try {
-            const rows = await listInvitations(email);
+            const rows = await listInvitations(email, { signal: controller.signal });
+            if (runId !== invRunRef.current) return;
             setInvRows(rows);
         } catch (error: unknown) {
+            if (isCanceledRequest(error) || runId !== invRunRef.current) return;
             setInvError(getErrorMessage(error, 'No se pudieron cargar las invitaciones'));
         } finally {
-            setInvLoading(false);
+            if (runId === invRunRef.current) {
+                setInvLoading(false);
+                if (invAbortRef.current === controller) invAbortRef.current = null;
+            }
         }
-    };
+    }, []);
 
     useEffect(() => {
-        if (tab === 'requests') loadRequests();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab, reqEstado]);
+        if (tab !== 'requests') return;
+        void loadRequests();
+        return () => {
+            reqAbortRef.current?.abort();
+        };
+    }, [tab, loadRequests]);
 
     useEffect(() => {
-        if (tab === 'invitations') loadInvitations(invEmail.trim().toLowerCase() || undefined);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tab]);
+        if (tab !== 'invitations') return;
+        void loadInvitations();
+        return () => {
+            invAbortRef.current?.abort();
+        };
+    }, [tab, loadInvitations]);
 
     const reqRender = useMemo(() => reqRows, [reqRows]);
+    const requestsWithMessage = useMemo(
+        () => reqRender.filter((r) => String(r.mensaje ?? '').trim() !== ''),
+        [reqRender]
+    );
+    const featuredRequests = useMemo(() => requestsWithMessage.slice(0, 3), [requestsWithMessage]);
 
     const doReject = async (r: InvitationRequestRow) => {
         const notas = window.prompt('Notas (opcional) para rechazar:', r.notas ?? '') ?? '';
@@ -182,6 +236,15 @@ const OnboardingPage: React.FC = () => {
     const doGenerateFromRequest = async (r: InvitationRequestRow) => {
         const safeEmail = escapeHtml(r.email);
         const safeNotes = escapeHtml(r.notas ?? '');
+        const safeClientMessage = escapeHtml(r.mensaje ?? '');
+        const clientMessageBlock = safeClientMessage
+            ? `
+                    <div class="invite-client-context">
+                        <div class="invite-client-context-label">Contexto enviado por el cliente</div>
+                        <div class="invite-client-context-copy">${safeClientMessage}</div>
+                    </div>
+                `
+            : '';
         const warning = r.estado === 'RECHAZADA'
             ? '<div class="invite-warning">Esta solicitud esta RECHAZADA. Si continuas, se marcara como APROBADA.</div>'
             : '';
@@ -211,6 +274,12 @@ const OnboardingPage: React.FC = () => {
                         border:1px solid #cbd5e1; box-shadow:none; font-size:15px;
                     }
                     .invite-hint{ font-size:12px; color:#64748b; line-height:1.35; }
+                    .invite-client-context{
+                        margin-top:14px; padding:12px 14px; border-left:4px solid #2563eb;
+                        background:#eff6ff; border-radius:10px; color:#1e293b;
+                    }
+                    .invite-client-context-label{ font-size:12px; font-weight:800; color:#1d4ed8; margin-bottom:5px; }
+                    .invite-client-context-copy{ font-size:13px; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
                     .invite-template-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
                     .invite-template-option{ position:relative; margin:0; cursor:pointer; }
                     .invite-template-option input{ position:absolute; opacity:0; pointer-events:none; }
@@ -246,6 +315,8 @@ const OnboardingPage: React.FC = () => {
                         </div>
                         <div class="invite-status">Envio por correo</div>
                     </div>
+
+                    ${clientMessageBlock}
 
                     <div class="invite-field">
                         <label for="swal-days" class="invite-label">Vigencia</label>
@@ -413,6 +484,30 @@ const OnboardingPage: React.FC = () => {
                             </div>
                         </div>
 
+                        {requestsWithMessage.length > 0 && (
+                            <div className="onboarding-signal-strip mb-3">
+                                <div className="onboarding-signal-summary">
+                                    <div className="onboarding-signal-kicker">Contexto del formulario</div>
+                                    <div className="onboarding-signal-title">
+                                        {requestsWithMessage.length} solicitud{requestsWithMessage.length === 1 ? '' : 'es'} con mensaje adicional
+                                    </div>
+                                </div>
+                                <div className="onboarding-signal-list">
+                                    {featuredRequests.map((r) => (
+                                        <button
+                                            key={r.id_request}
+                                            className="onboarding-signal-item"
+                                            type="button"
+                                            onClick={() => doGenerateFromRequest(r)}
+                                        >
+                                            <span className="onboarding-signal-email">{r.email}</span>
+                                            <span className="onboarding-signal-message">{compactText(r.mensaje, 110)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {reqError && <div className="alert alert-danger">{reqError}</div>}
 
                         <div className="table-responsive">
@@ -424,6 +519,7 @@ const OnboardingPage: React.FC = () => {
                                         <th>Negocio</th>
                                         <th style={{ width: 150 }}>Telefono</th>
                                         <th style={{ width: 150 }}>Plan</th>
+                                        <th style={{ minWidth: 260 }}>Contexto</th>
                                         <th style={{ width: 130 }}>Estado</th>
                                         <th style={{ width: 170 }}>Fecha</th>
                                         <th style={{ width: 280 }}>Acciones</th>
@@ -432,13 +528,13 @@ const OnboardingPage: React.FC = () => {
                                 <tbody>
                                     {reqLoading ? (
                                         <tr>
-                                            <td colSpan={8} className="text-muted">
+                                            <td colSpan={9} className="text-muted">
                                                 Cargando...
                                             </td>
                                         </tr>
                                     ) : reqRender.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="text-muted">
+                                            <td colSpan={9} className="text-muted">
                                                 Sin resultados
                                             </td>
                                         </tr>
@@ -456,14 +552,19 @@ const OnboardingPage: React.FC = () => {
                                                 </td>
                                                 <td>
                                                     <div>{r.empresa_nombre ?? <span className="text-muted">-</span>}</div>
-                                                    {r.mensaje && (
-                                                        <div className="text-muted" style={{ fontSize: 12 }}>
-                                                            {r.mensaje}
-                                                        </div>
-                                                    )}
                                                 </td>
                                                 <td>{r.telefono || <span className="text-muted">-</span>}</td>
                                                 <td>{planLabel(r.plan_solicitado)}</td>
+                                                <td>
+                                                    {r.mensaje ? (
+                                                        <div className="onboarding-message-box">
+                                                            <div className="onboarding-message-label">Mensaje adicional</div>
+                                                            <div className="onboarding-message-copy">{r.mensaje}</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted">Sin mensaje</span>
+                                                    )}
+                                                </td>
                                                 <td>
                                                     <span
                                                         className={
