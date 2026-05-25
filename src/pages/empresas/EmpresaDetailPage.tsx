@@ -8,14 +8,38 @@ import {
     getEmpresaPermisos,
     saveEmpresaPermisos,
     getEmpresaUsuarios,
+    getEmpresaConfiguracionNegocio,
+    saveEmpresaConfiguracionNegocio,
+    type EmpresaConfiguracionNegocio,
+    type EmpresaCapacidadDetalle,
     type EmpresaModuloItem,
     type EmpresaPermisoItem,
+    type TipoNegocio,
     type EmpresaUsuarioItem,
 } from '../../api/adminEmpresas';
 
 type ModRow = EmpresaModuloItem;
 type PermRow = EmpresaPermisoItem;
 type UserRow = EmpresaUsuarioItem;
+type CapRow = EmpresaCapacidadDetalle;
+
+const BUSINESS_TYPE_OPTIONS: Array<{ value: TipoNegocio; label: string; help: string }> = [
+    {
+        value: 'GENERAL',
+        label: 'Otro negocio',
+        help: 'Configuración general para ferreterías, misceláneas, autopartes, tiendas de ropa y otros negocios con venta por unidad.',
+    },
+    {
+        value: 'DROGUERIA',
+        label: 'Droguería',
+        help: 'Activa lotes, vencimientos y el registro y la venta por presentaciones, como caja, blíster y unidad.',
+    },
+    {
+        value: 'TIENDA_MINIMARKET',
+        label: 'Tienda / minimarket',
+        help: 'Activa lotes, vencimientos y el registro y la venta de productos por peso (kg).',
+    },
+];
 
 /** ===========================
  *  1) Especificación de módulos/permisos "USADOS" (los del POS)
@@ -146,11 +170,14 @@ export default function EmpresaDetailPage() {
     const { id } = useParams();
     const idEmpresa = Number(id || 0);
 
-    const [tab, setTab] = useState<'modulos' | 'permisos' | 'usuarios'>('modulos');
+    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'permisos' | 'usuarios'>('configuracion');
 
     const [mods, setMods] = useState<ModRow[]>([]);
     const [perms, setPerms] = useState<PermRow[]>([]);
     const [users, setUsers] = useState<UserRow[]>([]);
+    const [businessConfig, setBusinessConfig] = useState<EmpresaConfiguracionNegocio | null>(null);
+    const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>('GENERAL');
+    const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -163,14 +190,18 @@ export default function EmpresaDetailPage() {
     const load = async () => {
         setLoading(true);
         try {
-            const [m, p, u] = await Promise.all([
+            const [m, p, u, c] = await Promise.all([
                 getEmpresaModulos(idEmpresa),
                 getEmpresaPermisos(idEmpresa),
                 getEmpresaUsuarios(idEmpresa),
+                getEmpresaConfiguracionNegocio(idEmpresa),
             ]);
             setMods(m.items ?? []);
             setPerms(p.items ?? []);
             setUsers(u.items ?? []);
+            setBusinessConfig(c);
+            setTipoNegocio(c.tipo_negocio ?? 'GENERAL');
+            setCapabilityValues(c.capacidades ?? {});
         } finally {
             setLoading(false);
         }
@@ -217,6 +248,17 @@ export default function EmpresaDetailPage() {
         );
     }, [users, q]);
 
+    const filteredCapabilities = useMemo(() => {
+        const rows = businessConfig?.capacidades_detalle ?? [];
+        const s = q.trim().toLowerCase();
+        if (!s) return rows;
+        return rows.filter((cap: CapRow) =>
+            normCode(cap.codigo_capacidad).toLowerCase().includes(s) ||
+            String(cap.nombre ?? '').toLowerCase().includes(s) ||
+            String(cap.descripcion ?? '').toLowerCase().includes(s)
+        );
+    }, [businessConfig, q]);
+
     const saveMods = async () => {
         const items = mods.map(m => ({ id_modulo: m.id_modulo, enabled: !!m.enabled }));
         const r = await saveEmpresaModulos(idEmpresa, items);
@@ -227,6 +269,17 @@ export default function EmpresaDetailPage() {
         const items = perms.map(p => ({ id_permiso: p.id_permiso, enabled: !!p.enabled }));
         const r = await saveEmpresaPermisos(idEmpresa, items);
         await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
+    };
+
+    const saveBusinessConfig = async () => {
+        const r = await saveEmpresaConfiguracionNegocio(idEmpresa, {
+            tipo_negocio: tipoNegocio,
+            capacidades: capabilityValues,
+        });
+        setBusinessConfig(r);
+        setTipoNegocio(r.tipo_negocio ?? 'GENERAL');
+        setCapabilityValues(r.capacidades ?? {});
+        await Swal.fire({ icon: 'success', title: 'Guardado', text: 'Configuración de negocio actualizada' });
     };
 
     /** ===========================
@@ -295,6 +348,10 @@ export default function EmpresaDetailPage() {
             });
     }, [perms, usedPermSet, showUnmapped, q]);
 
+    const selectedBusinessTypeOption = useMemo(() => {
+        return BUSINESS_TYPE_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? BUSINESS_TYPE_OPTIONS[0];
+    }, [tipoNegocio]);
+
     return (
         <PageLayout
             title={`Empresa #${idEmpresa}`}
@@ -302,6 +359,12 @@ export default function EmpresaDetailPage() {
         >
             <div className="d-flex gap-2 align-items-center mb-3 flex-wrap">
                 <div className="btn-group">
+                    <button
+                        className={`btn btn-sm ${tab === 'configuracion' ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => setTab('configuracion')}
+                    >
+                        Configuración
+                    </button>
                     <button
                         className={`btn btn-sm ${tab === 'modulos' ? 'btn-primary' : 'btn-outline-primary'}`}
                         onClick={() => setTab('modulos')}
@@ -325,11 +388,13 @@ export default function EmpresaDetailPage() {
                 <input
                     className="form-control"
                     placeholder={
-                        tab === 'modulos'
-                            ? 'Filtrar módulos...'
-                            : tab === 'permisos'
-                                ? 'Buscar en permisos del módulo...'
-                                : 'Buscar usuarios...'
+                        tab === 'configuracion'
+                            ? 'Buscar capacidades...'
+                            : tab === 'modulos'
+                                ? 'Filtrar módulos...'
+                                : tab === 'permisos'
+                                    ? 'Buscar en permisos del módulo...'
+                                    : 'Buscar usuarios...'
                     }
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -352,7 +417,11 @@ export default function EmpresaDetailPage() {
                         </div>
                     )}
 
-                    {tab === 'modulos' ? (
+                    {tab === 'configuracion' ? (
+                        <button className="btn btn-primary btn-sm" onClick={saveBusinessConfig} disabled={loading || !businessConfig}>
+                            Guardar configuración
+                        </button>
+                    ) : tab === 'modulos' ? (
                         <button className="btn btn-primary btn-sm" onClick={saveMods} disabled={loading}>
                             Guardar módulos
                         </button>
@@ -366,6 +435,113 @@ export default function EmpresaDetailPage() {
 
             {loading ? (
                 <div className="py-4">Cargando…</div>
+            ) : tab === 'configuracion' ? (
+                <div className="row g-3">
+                    <div className="col-12 col-lg-5">
+                        <div className="card">
+                            <div className="card-body">
+                                <div className="fw-bold mb-2">Tipo de negocio</div>
+                                <select
+                                    className="form-select"
+                                    value={tipoNegocio}
+                                    onChange={(e) => setTipoNegocio(e.target.value as TipoNegocio)}
+                                >
+                                    {BUSINESS_TYPE_OPTIONS.map((option) => (
+                                        <option key={option.value} value={option.value}>
+                                            {option.label}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                <div className="text-muted mt-2" style={{ fontSize: 12 }}>
+                                    {selectedBusinessTypeOption?.help}
+                                </div>
+
+                                <div className="border-top pt-3 mt-3">
+                                    <div className="fw-bold mb-1">Empresa</div>
+                                    <div style={{ fontSize: 13 }}>
+                                        {businessConfig?.nombre ?? `Empresa #${idEmpresa}`}
+                                    </div>
+                                    <div className="text-muted" style={{ fontSize: 12 }}>
+                                        ID {idEmpresa}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="col-12 col-lg-7">
+                        <div className="card">
+                            <div className="card-body">
+                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                                    <div>
+                                        <div className="fw-bold">Capacidades</div>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            Activa o desactiva funciones especiales para esta empresa.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="table-responsive mt-3">
+                                    <table className="table table-sm align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Capacidad</th>
+                                                <th>Descripción</th>
+                                                <th style={{ width: 110 }}>Habilitar</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredCapabilities.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={3} className="text-muted py-3">
+                                                        No hay capacidades para mostrar.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredCapabilities.map((cap) => {
+                                                    const code = normCode(cap.codigo_capacidad);
+                                                    const enabled = capabilityValues[code] ?? !!cap.enabled;
+                                                    return (
+                                                        <tr key={code}>
+                                                            <td>
+                                                                <div style={{ fontWeight: 700 }}>{cap.nombre}</div>
+                                                                <div className="text-muted" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
+                                                                    {code}
+                                                                </div>
+                                                                {code === 'PRODUCTOS_PESO' && (
+                                                                    <span className="badge text-bg-warning mt-1">Reservada</span>
+                                                                )}
+                                                            </td>
+                                                            <td style={{ fontSize: 12, opacity: 0.85 }}>
+                                                                {cap.descripcion || '-'}
+                                                            </td>
+                                                            <td>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="form-check-input"
+                                                                    checked={enabled}
+                                                                    onChange={(e) => {
+                                                                        const v = e.target.checked;
+                                                                        setCapabilityValues((prev) => ({ ...prev, [code]: v }));
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div className="text-muted" style={{ fontSize: 12 }}>
+                                    Productos por peso queda marcada como reservada hasta terminar el flujo completo de kg.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             ) : tab === 'modulos' ? (
                 <div className="table-responsive">
                     <table className="table table-sm align-middle">
