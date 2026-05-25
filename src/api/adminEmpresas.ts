@@ -5,8 +5,29 @@ export type Empresa = {
   id_empresa: number;
   nombre: string;
   estado: number;
+  tipo_negocio?: TipoNegocio;
   created_at?: string;
   updated_at?: string;
+};
+
+export type TipoNegocio = 'GENERAL' | 'DROGUERIA' | 'TIENDA_MINIMARKET';
+export type CodigoCapacidad = 'LOTES_VENCIMIENTOS' | 'PRODUCTOS_PRESENTACION' | 'PRODUCTOS_PESO';
+
+export type EmpresaCapacidadDetalle = {
+  codigo_capacidad: CodigoCapacidad | string;
+  nombre: string;
+  descripcion?: string | null;
+  estado: number;
+  enabled: boolean;
+};
+
+export type EmpresaConfiguracionNegocio = {
+  ok: boolean;
+  id_empresa: number;
+  nombre: string;
+  tipo_negocio: TipoNegocio;
+  capacidades: Record<string, boolean>;
+  capacidades_detalle: EmpresaCapacidadDetalle[];
 };
 
 export async function listEmpresas(params?: { q?: string; limit?: number; offset?: number }) {
@@ -17,6 +38,19 @@ export async function listEmpresas(params?: { q?: string; limit?: number; offset
 export async function setEmpresaEstado(idEmpresa: number, estado: 0 | 1) {
   const { data } = await adminClient.patch(`/admin/empresas/${idEmpresa}/estado`, { estado });
   return data as { ok: boolean; item: Empresa };
+}
+
+export async function getEmpresaConfiguracionNegocio(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/configuracion-negocio`);
+  return data as EmpresaConfiguracionNegocio;
+}
+
+export async function saveEmpresaConfiguracionNegocio(
+  idEmpresa: number,
+  payload: { tipo_negocio: TipoNegocio; capacidades: Record<string, boolean> }
+) {
+  const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/configuracion-negocio`, payload);
+  return data as EmpresaConfiguracionNegocio;
 }
 
 export type EmpresaModuloItem = {
