@@ -4,6 +4,15 @@ import adminClient from './adminClient';
 export type Empresa = {
   id_empresa: number;
   nombre: string;
+  codigo?: string | null;
+  nit?: string | null;
+  direccion?: string | null;
+  telefono?: string | null;
+  codigo_departamento?: string | null;
+  departamento_nombre?: string | null;
+  codigo_municipio?: string | null;
+  municipio_nombre?: string | null;
+  barrio?: string | null;
   estado: number;
   tipo_negocio?: TipoNegocio;
   created_at?: string;
