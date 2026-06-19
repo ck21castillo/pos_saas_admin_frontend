@@ -33,9 +33,23 @@ export type InvitationRow = {
   created_at: string;
   expires_at: string;
   used_at: string | null;
-  estado: number; // 1=activa
+  estado: number;
   used_by_company_id: number | null;
   used_by_user_id: number | null;
+};
+
+export type InvitationRequestListResponse = {
+  rows: InvitationRequestRow[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type InvitationListResponse = {
+  rows: InvitationRow[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 function firstText(...values: Array<string | null | undefined>) {
@@ -63,10 +77,19 @@ function normalizeInvitationRequestRow(row: InvitationRequestApiRow): Invitation
 
 export async function listInvitationRequests(
   estado: InvitationRequestEstado = 'PENDIENTE',
+  params?: { limit?: number; offset?: number },
   config?: Pick<AxiosRequestConfig, 'signal'>
-) {
-  const { data } = await adminClient.get('/onboarding/requests', { ...config, params: { estado } });
-  return ((data?.rows ?? []) as InvitationRequestApiRow[]).map(normalizeInvitationRequestRow);
+): Promise<InvitationRequestListResponse> {
+  const { data } = await adminClient.get('/onboarding/requests', {
+    ...config,
+    params: { estado, limit: params?.limit, offset: params?.offset },
+  });
+  return {
+    rows: ((data?.rows ?? []) as InvitationRequestApiRow[]).map(normalizeInvitationRequestRow),
+    total: Number(data?.total ?? 0),
+    limit: Number(data?.limit ?? params?.limit ?? 25),
+    offset: Number(data?.offset ?? params?.offset ?? 0),
+  };
 }
 
 export async function updateInvitationRequest(
@@ -91,10 +114,23 @@ export async function createInvitation(payload: { email: string; days?: number; 
   };
 }
 
-export async function listInvitations(email?: string, config?: Pick<AxiosRequestConfig, 'signal'>) {
+export async function listInvitations(
+  email?: string,
+  params?: { limit?: number; offset?: number },
+  config?: Pick<AxiosRequestConfig, 'signal'>
+): Promise<InvitationListResponse> {
   const { data } = await adminClient.get('/onboarding/invitations', {
     ...config,
-    params: email ? { email } : undefined,
+    params: {
+      ...(email ? { email } : {}),
+      limit: params?.limit,
+      offset: params?.offset,
+    },
   });
-  return (data?.rows ?? []) as InvitationRow[];
+  return {
+    rows: (data?.rows ?? []) as InvitationRow[],
+    total: Number(data?.total ?? 0),
+    limit: Number(data?.limit ?? params?.limit ?? 25),
+    offset: Number(data?.offset ?? params?.offset ?? 0),
+  };
 }

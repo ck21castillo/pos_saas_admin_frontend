@@ -22,6 +22,13 @@ export type AdminNotificationItem = {
   created_at: string;
 };
 
+export type AdminNotificationListResponse = {
+  items: AdminNotificationItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export async function listAdminNotifications(params?: {
   scope?: NotificationScope | '';
   estado?: 0 | 1 | '';
@@ -29,9 +36,14 @@ export async function listAdminNotifications(params?: {
   q?: string;
   limit?: number;
   offset?: number;
-}) {
+}): Promise<AdminNotificationListResponse> {
   const { data } = await adminClient.get('/admin/notifications', { params });
-  return (data?.items ?? []) as AdminNotificationItem[];
+  return {
+    items: (data?.items ?? []) as AdminNotificationItem[],
+    total: Number(data?.total ?? 0),
+    limit: Number(data?.limit ?? params?.limit ?? 25),
+    offset: Number(data?.offset ?? params?.offset ?? 0),
+  };
 }
 
 export async function createAdminNotification(payload: {

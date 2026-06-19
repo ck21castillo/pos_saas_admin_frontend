@@ -39,7 +39,7 @@ export default function LandingVisitorsPage() {
       setData(out);
       setUpdatedAt(new Date());
     } catch {
-      setError('No se pudo cargar la métrica de visitantes.');
+      setError('No se pudo cargar la metrica de visitantes.');
     } finally {
       setLoading(false);
     }
@@ -70,11 +70,11 @@ export default function LandingVisitorsPage() {
             className="form-select form-select-sm"
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            style={{ width: 140 }}
+            style={{ width: 150 }}
           >
-            <option value={7}>Últimos 7 días</option>
-            <option value={30}>Últimos 30 días</option>
-            <option value={90}>Últimos 90 días</option>
+            <option value={7}>Ultimos 7 dias</option>
+            <option value={30}>Ultimos 30 dias</option>
+            <option value={90}>Ultimos 90 dias</option>
           </select>
         </div>
         <button
@@ -95,21 +95,21 @@ export default function LandingVisitorsPage() {
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">Hoy</div>
           <div className="lv-kpi-value">{fmtN(data?.totals.visitors_today ?? 0)}</div>
-          <div className="lv-kpi-sub">personas únicas</div>
+          <div className="lv-kpi-sub">personas unicas</div>
           <div className="lv-kpi-alt">{fmtN(data?.totals.visits_today ?? 0)} visitas</div>
         </article>
 
         <article className="lv-kpi-card">
-          <div className="lv-kpi-label">7 días</div>
+          <div className="lv-kpi-label">7 dias</div>
           <div className="lv-kpi-value">{fmtN(data?.totals.visitors_7d ?? 0)}</div>
-          <div className="lv-kpi-sub">personas únicas</div>
+          <div className="lv-kpi-sub">personas unicas</div>
           <div className="lv-kpi-alt">{fmtN(data?.totals.visits_7d ?? 0)} visitas</div>
         </article>
 
         <article className="lv-kpi-card">
-          <div className="lv-kpi-label">30 días</div>
+          <div className="lv-kpi-label">30 dias</div>
           <div className="lv-kpi-value">{fmtN(data?.totals.visitors_30d ?? 0)}</div>
-          <div className="lv-kpi-sub">personas únicas</div>
+          <div className="lv-kpi-sub">personas unicas</div>
           <div className="lv-kpi-alt">{fmtN(data?.totals.visits_30d ?? 0)} visitas</div>
         </article>
       </div>
@@ -129,14 +129,14 @@ export default function LandingVisitorsPage() {
                 <tr>
                   <th style={{ width: 120 }}>Fecha</th>
                   <th>Visitas</th>
-                  <th style={{ width: 130 }}>Personas únicas</th>
+                  <th style={{ width: 130 }}>Personas unicas</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr><td colSpan={3}>Cargando...</td></tr>
                 ) : (data?.daily.length ?? 0) === 0 ? (
-                  <tr><td colSpan={3}>Sin datos aún</td></tr>
+                  <tr><td colSpan={3}>Sin datos aun</td></tr>
                 ) : (
                   data?.daily.map((row) => {
                     const width = topDaily > 0 ? Math.max(6, Math.round((row.visits / topDaily) * 100)) : 0;
@@ -173,14 +173,14 @@ export default function LandingVisitorsPage() {
                 <tr>
                   <th>Ruta</th>
                   <th style={{ width: 90 }}>Visitas</th>
-                  <th style={{ width: 120 }}>Personas únicas</th>
+                  <th style={{ width: 120 }}>Personas unicas</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr><td colSpan={3}>Cargando...</td></tr>
                 ) : (data?.paths.length ?? 0) === 0 ? (
-                  <tr><td colSpan={3}>Sin datos aún</td></tr>
+                  <tr><td colSpan={3}>Sin datos aun</td></tr>
                 ) : (
                   data?.paths.map((row) => (
                     <tr key={row.landing_path}>

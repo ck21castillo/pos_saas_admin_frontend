@@ -18,6 +18,13 @@ export type HelpTicketListItem = {
   closed_at: string | null;
 };
 
+export type HelpTicketListResponse = {
+  items: HelpTicketListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type HelpTicketMessage = {
   id_message: number;
   actor_tipo: 'CLIENTE' | 'ADMIN' | string;
@@ -48,9 +55,14 @@ export async function listHelpTickets(params?: {
   id_empresa?: number;
   limit?: number;
   offset?: number;
-}) {
+}): Promise<HelpTicketListResponse> {
   const { data } = await adminClient.get('/admin/help/tickets', { params });
-  return (data?.items ?? []) as HelpTicketListItem[];
+  return {
+    items: (data?.items ?? []) as HelpTicketListItem[],
+    total: Number(data?.total ?? 0),
+    limit: Number(data?.limit ?? params?.limit ?? 25),
+    offset: Number(data?.offset ?? params?.offset ?? 0),
+  };
 }
 
 export async function getHelpTicket(id: number) {

@@ -21,6 +21,12 @@ type ApiErrorLike = {
   };
 };
 
+type TicketFilters = {
+  estado: HelpTicketEstado | '';
+  q: string;
+  empresaId: string;
+};
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (!error || typeof error !== 'object') return fallback;
   const e = error as ApiErrorLike;
@@ -47,6 +53,9 @@ const HelpTicketsPage: React.FC = () => {
   const [estado, setEstado] = useState<HelpTicketEstado | ''>('');
   const [q, setQ] = useState('');
   const [empresaId, setEmpresaId] = useState('');
+  const [limit, setLimit] = useState(25);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<HelpTicketDetail | null>(null);
@@ -58,25 +67,38 @@ const HelpTicketsPage: React.FC = () => {
   const [replyLoading, setReplyLoading] = useState(false);
   const [estadoSaving, setEstadoSaving] = useState(false);
 
-  const loadList = async () => {
+  const loadList = async (
+    nextOffset = offset,
+    nextLimit = limit,
+    filters: TicketFilters = { estado, q, empresaId }
+  ) => {
     setError(null);
     setLoading(true);
     try {
-      const rows = await listHelpTickets({
-        estado,
-        q: q.trim() || undefined,
-        id_empresa: empresaId.trim() ? Number(empresaId) : undefined,
-        limit: 100,
+      const response = await listHelpTickets({
+        estado: filters.estado,
+        q: filters.q.trim() || undefined,
+        id_empresa: filters.empresaId.trim() ? Number(filters.empresaId) : undefined,
+        limit: nextLimit,
+        offset: nextOffset,
       });
-      setItems(rows);
+      setItems(response.items);
+      setTotal(response.total);
+      setLimit(response.limit);
+      setOffset(response.offset);
 
-      if (rows.length > 0 && !selectedId) {
-        setSelectedId(rows[0].id_ticket);
-      }
-      if (rows.length === 0) {
+      if (response.items.length === 0) {
         setSelectedId(null);
         setDetail(null);
         setMessages([]);
+        return;
+      }
+
+      const selectedIsVisible = selectedId
+        ? response.items.some((item) => item.id_ticket === selectedId)
+        : false;
+      if (!selectedIsVisible) {
+        setSelectedId(response.items[0].id_ticket);
       }
     } catch (error: unknown) {
       setError(getErrorMessage(error, 'No se pudieron cargar los tickets'));
@@ -100,7 +122,7 @@ const HelpTicketsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadList();
+    loadList(0, limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -115,6 +137,29 @@ const HelpTicketsPage: React.FC = () => {
     [messages]
   );
 
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  const currentPage = Math.floor(offset / Math.max(1, limit)) + 1;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + items.length, total);
+  const canPrev = offset > 0;
+  const canNext = offset + limit < total;
+
+  const onFilter = async () => {
+    await loadList(0, limit);
+  };
+
+  const onLimitChange = async (value: number) => {
+    await loadList(0, value);
+  };
+
+  const onClear = async () => {
+    const emptyFilters: TicketFilters = { estado: '', q: '', empresaId: '' };
+    setEstado(emptyFilters.estado);
+    setQ(emptyFilters.q);
+    setEmpresaId(emptyFilters.empresaId);
+    await loadList(0, limit, emptyFilters);
+  };
+
   const onReply = async () => {
     if (!selectedId || !replyText.trim()) return;
     setReplyLoading(true);
@@ -122,7 +167,7 @@ const HelpTicketsPage: React.FC = () => {
       await replyHelpTicket(selectedId, replyText.trim());
       setReplyText('');
       await loadDetail(selectedId);
-      await loadList();
+      await loadList(offset, limit);
     } catch (error: unknown) {
       alert(getErrorMessage(error, 'No se pudo enviar la respuesta'));
     } finally {
@@ -136,7 +181,7 @@ const HelpTicketsPage: React.FC = () => {
     try {
       await updateHelpTicketEstado(selectedId, next);
       await loadDetail(selectedId);
-      await loadList();
+      await loadList(offset, limit);
     } catch (error: unknown) {
       alert(getErrorMessage(error, 'No se pudo cambiar estado'));
     } finally {
@@ -148,7 +193,11 @@ const HelpTicketsPage: React.FC = () => {
     <PageLayout
       title="Ayuda"
       right={
-        <button className="btn btn-outline-secondary btn-sm" onClick={loadList} type="button">
+        <button
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => loadList(offset, limit)}
+          type="button"
+        >
           Recargar
         </button>
       }
@@ -157,44 +206,75 @@ const HelpTicketsPage: React.FC = () => {
         <div className="col-12 col-xl-5">
           <div className="card border-0 shadow-sm">
             <div className="card-body">
-              <h5 className="card-title mb-3">Tickets</h5>
+              <div className="d-flex align-items-center justify-content-between gap-2 mb-3">
+                <h5 className="card-title mb-0">Tickets</h5>
+                <span className="small text-muted">Total: {total}</span>
+              </div>
 
-              <div className="row g-2 mb-3">
-                <div className="col-12 col-md-4">
+              <form
+                className="row g-2 mb-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onFilter();
+                }}
+              >
+                <div className="col-12 col-md-5">
+                  <label className="form-label small mb-1">Buscar</label>
+                  <input
+                    className="form-control form-control-sm"
+                    placeholder="Asunto, contacto o email"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+                </div>
+                <div className="col-6 col-md-3">
+                  <label className="form-label small mb-1">Estado</label>
                   <select
                     className="form-select form-select-sm"
                     value={estado}
                     onChange={(e) => setEstado(e.target.value as HelpTicketEstado | '')}
                   >
                     <option value="">Todos</option>
-                    <option value="ABIERTO">ABIERTO</option>
-                    <option value="EN_PROCESO">EN_PROCESO</option>
-                    <option value="RESPONDIDO">RESPONDIDO</option>
-                    <option value="CERRADO">CERRADO</option>
+                    <option value="ABIERTO">Abierto</option>
+                    <option value="EN_PROCESO">En proceso</option>
+                    <option value="RESPONDIDO">Respondido</option>
+                    <option value="CERRADO">Cerrado</option>
                   </select>
                 </div>
-                <div className="col-12 col-md-4">
+                <div className="col-6 col-md-2">
+                  <label className="form-label small mb-1">Mostrar</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={limit}
+                    onChange={(e) => onLimitChange(Number(e.target.value))}
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+                <div className="col-8 col-md-2">
+                  <label className="form-label small mb-1">Empresa</label>
                   <input
                     className="form-control form-control-sm"
-                    placeholder="ID empresa"
+                    placeholder="ID"
                     value={empresaId}
                     onChange={(e) => setEmpresaId(e.target.value)}
                   />
                 </div>
-                <div className="col-12 col-md-4">
-                  <button className="btn btn-sm btn-primary w-100" type="button" onClick={loadList}>
+                <div className="col-4 col-md-12 d-flex justify-content-end gap-2">
+                  <button className="btn btn-sm btn-primary" type="submit" disabled={loading}>
                     Filtrar
                   </button>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    disabled={loading}
+                    onClick={onClear}
+                  >
+                    Limpiar
+                  </button>
                 </div>
-                <div className="col-12">
-                  <input
-                    className="form-control form-control-sm"
-                    placeholder="Buscar por asunto/contacto/email..."
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                  />
-                </div>
-              </div>
+              </form>
 
               {error && <div className="alert alert-danger py-2">{error}</div>}
 
@@ -214,14 +294,14 @@ const HelpTicketsPage: React.FC = () => {
                         }`}
                         onClick={() => setSelectedId(it.id_ticket)}
                       >
-                        <div className="d-flex justify-content-between align-items-start">
-                          <div>
-                            <div className="fw-semibold">#{it.id_ticket} · {it.asunto}</div>
+                        <div className="d-flex justify-content-between align-items-start gap-2">
+                          <div className="text-start">
+                            <div className="fw-semibold">#{it.id_ticket} - {it.asunto}</div>
                             <div className="small opacity-75">
                               Empresa: {it.id_empresa} {it.empresa_nombre ? `- ${it.empresa_nombre}` : ''}
                             </div>
                             <div className="small opacity-75">
-                              {it.contacto_nombre ?? '-'} · {it.contacto_email ?? '-'}
+                              {it.contacto_nombre ?? '-'} - {it.contacto_email ?? '-'}
                             </div>
                           </div>
                           <span className={estadoBadgeClass(it.estado)}>{it.estado}</span>
@@ -230,6 +310,33 @@ const HelpTicketsPage: React.FC = () => {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+                <span className="small text-muted">
+                  Mostrando {from}-{to} de {total}
+                </span>
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    disabled={!canPrev || loading}
+                    onClick={() => loadList(Math.max(0, offset - limit), limit)}
+                  >
+                    Anterior
+                  </button>
+                  <span className="small text-muted">
+                    Pagina {currentPage} de {totalPages}
+                  </span>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    disabled={!canNext || loading}
+                    onClick={() => loadList(offset + limit, limit)}
+                  >
+                    Siguiente
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -267,10 +374,10 @@ const HelpTicketsPage: React.FC = () => {
                   <div className="mb-3">
                     <div className="fw-semibold">{detail.asunto}</div>
                     <div className="small text-muted">
-                      Contacto: {detail.contacto_nombre ?? '-'} · {detail.contacto_email ?? '-'}
+                      Contacto: {detail.contacto_nombre ?? '-'} - {detail.contacto_email ?? '-'}
                     </div>
                     <div className="small text-muted">
-                      Creado: {fmtDate(detail.created_at)} · Actualizado: {fmtDate(detail.updated_at)}
+                      Creado: {fmtDate(detail.created_at)} - Actualizado: {fmtDate(detail.updated_at)}
                     </div>
                   </div>
 
@@ -284,7 +391,7 @@ const HelpTicketsPage: React.FC = () => {
                       orderedMessages.map((m) => (
                         <div key={m.id_message} className="mb-2">
                           <div className="small">
-                            <strong>{m.actor_tipo}</strong> · {fmtDate(m.created_at)}
+                            <strong>{m.actor_tipo}</strong> - {fmtDate(m.created_at)}
                           </div>
                           <div>{m.mensaje}</div>
                         </div>
