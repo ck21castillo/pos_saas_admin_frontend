@@ -21,25 +21,37 @@ export default function EmpresasPage() {
     const [q, setQ] = useState('');
     const [items, setItems] = useState<Empresa[]>([]);
     const [total, setTotal] = useState(0);
-    const [limit] = useState(25);
+    const [limit, setLimit] = useState(25);
     const [offset, setOffset] = useState(0);
     const [loading, setLoading] = useState(false);
 
     const page = useMemo(() => Math.floor(offset / limit) + 1, [offset, limit]);
     const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
+    const from = total === 0 ? 0 : offset + 1;
+    const to = Math.min(offset + items.length, total);
 
-    const load = async () => {
+    const load = async (nextOffset = offset, nextLimit = limit, nextQ = q) => {
         setLoading(true);
         try {
-            const r = await listEmpresas({ q, limit, offset });
-            setItems(r.items);
-            setTotal(r.total);
+            const r = await listEmpresas({ q: nextQ.trim() || undefined, limit: nextLimit, offset: nextOffset });
+            setItems(r.items ?? []);
+            setTotal(Number(r.total ?? 0));
+            setLimit(Number(r.limit ?? nextLimit));
+            setOffset(Number(r.offset ?? nextOffset));
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { load(); }, [offset]); // eslint-disable-line
+    useEffect(() => { load(0, limit); }, []); // eslint-disable-line
+
+    const onBuscar = async () => {
+        await load(0, limit, q);
+    };
+
+    const onLimitChange = async (value: number) => {
+        await load(0, value, q);
+    };
 
     const onToggleEstado = async (e: Empresa) => {
         const next = e.estado ? 0 : 1;
@@ -57,7 +69,7 @@ export default function EmpresasPage() {
         if (!ok.isConfirmed) return;
 
         await setEmpresaEstado(e.id_empresa, next as 0 | 1);
-        await load();
+        await load(offset, limit, q);
     };
 
     return (
@@ -65,21 +77,51 @@ export default function EmpresasPage() {
             title="Empresas"
             right={<div style={{ fontSize: 12, opacity: 0.7 }}>Sesion: {adminEmail}</div>}
         >
-            <div className="d-flex gap-2 align-items-center mb-3">
-                <input
-                    className="form-control"
-                    placeholder="Buscar por nombre, NIT, codigo, telefono o ciudad..."
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    style={{ maxWidth: 460 }}
-                />
-                <button className="btn btn-primary" onClick={() => { setOffset(0); load(); }}>
+            <form
+                className="d-flex gap-2 align-items-end mb-3 flex-wrap"
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    onBuscar();
+                }}
+            >
+                <div style={{ minWidth: 280, maxWidth: 520, flex: '1 1 420px' }}>
+                    <label className="form-label small mb-1">Buscar</label>
+                    <input
+                        className="form-control"
+                        placeholder="Nombre, NIT, codigo, telefono o ciudad"
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                    />
+                </div>
+                <div style={{ width: 120 }}>
+                    <label className="form-label small mb-1">Mostrar</label>
+                    <select
+                        className="form-select"
+                        value={limit}
+                        onChange={(e) => onLimitChange(Number(e.target.value))}
+                    >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                    </select>
+                </div>
+                <button className="btn btn-primary" type="submit" disabled={loading}>
                     Buscar
+                </button>
+                <button
+                    className="btn btn-outline-secondary"
+                    type="button"
+                    disabled={loading || (!q && offset === 0)}
+                    onClick={() => {
+                        setQ('');
+                        load(0, limit, '');
+                    }}
+                >
+                    Limpiar
                 </button>
                 <div className="ms-auto" style={{ fontSize: 12, opacity: 0.7 }}>
                     Total: {total}
                 </div>
-            </div>
+            </form>
 
             <div className="table-responsive">
                 <table className="table table-sm align-middle">
@@ -160,16 +202,29 @@ export default function EmpresasPage() {
                 </table>
             </div>
 
-            <div className="d-flex align-items-center gap-2 mt-2">
-                <button className="btn btn-outline-secondary btn-sm" disabled={page <= 1} onClick={() => setOffset(Math.max(0, offset - limit))}>
-                    Anterior
-                </button>
+            <div className="d-flex align-items-center justify-content-between gap-2 mt-2 flex-wrap">
                 <div style={{ fontSize: 12, opacity: 0.75 }}>
-                    Pagina {page} / {pages}
+                    Mostrando {from}-{to} de {total}
                 </div>
-                <button className="btn btn-outline-secondary btn-sm" disabled={page >= pages} onClick={() => setOffset(offset + limit)}>
-                    Siguiente
-                </button>
+                <div className="d-flex align-items-center gap-2">
+                    <button
+                        className="btn btn-outline-secondary btn-sm"
+                        disabled={page <= 1 || loading}
+                        onClick={() => load(Math.max(0, offset - limit), limit, q)}
+                    >
+                        Anterior
+                    </button>
+                    <div style={{ fontSize: 12, opacity: 0.75 }}>
+                        Pagina {page} de {pages}
+                    </div>
+                    <button
+                        className="btn btn-outline-secondary btn-sm"
+                        disabled={page >= pages || loading}
+                        onClick={() => load(offset + limit, limit, q)}
+                    >
+                        Siguiente
+                    </button>
+                </div>
             </div>
         </PageLayout>
     );

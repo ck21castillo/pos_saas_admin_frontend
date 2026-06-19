@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
 import { getEmpresaUsuarioAdmin, listEmpresas, type Empresa } from '../../api/adminEmpresas';
@@ -20,6 +20,13 @@ type ApiErrorLike = {
       message?: string;
     };
   };
+};
+
+type NotificationFilters = {
+  scope: NotificationScope | '';
+  estado: 0 | 1 | '';
+  empresa: string;
+  query: string;
 };
 
 const dateTimeFormatter = new Intl.DateTimeFormat('es-CO', {
@@ -74,33 +81,39 @@ const NotificationsPage: React.FC = () => {
   const [q, setQ] = useState('');
   const [items, setItems] = useState<AdminNotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(25);
+  const [offset, setOffset] = useState(0);
 
   const loadEmpresas = async () => {
     const out = await listEmpresas({ limit: 200, offset: 0 });
     setEmpresas(out.items);
   };
 
-  const loadWithFilters = async (overrides?: {
-    scope?: NotificationScope | '';
-    estado?: 0 | 1 | '';
-    empresa?: string;
-    query?: string;
-  }) => {
-    const scopeValue = overrides?.scope ?? fScope;
-    const estadoValue = overrides?.estado ?? fEstado;
-    const empresaValue = overrides?.empresa ?? fEmpresa;
-    const queryValue = overrides?.query ?? q;
-
+  const loadWithFilters = async (
+    nextOffset = offset,
+    nextLimit = limit,
+    filters: NotificationFilters = {
+      scope: fScope,
+      estado: fEstado,
+      empresa: fEmpresa,
+      query: q,
+    }
+  ) => {
     setLoading(true);
     try {
-      const rows = await listAdminNotifications({
-        scope: scopeValue,
-        estado: estadoValue,
-        id_empresa: empresaValue.trim() ? Number(empresaValue) : undefined,
-        q: queryValue.trim() || undefined,
-        limit: 150,
+      const response = await listAdminNotifications({
+        scope: filters.scope,
+        estado: filters.estado,
+        id_empresa: filters.empresa.trim() ? Number(filters.empresa) : undefined,
+        q: filters.query.trim() || undefined,
+        limit: nextLimit,
+        offset: nextOffset,
       });
-      setItems(rows);
+      setItems(response.items);
+      setTotal(response.total);
+      setLimit(response.limit);
+      setOffset(response.offset);
     } catch (error: unknown) {
       Swal.fire('Error', getErrorMessage(error, 'No se pudo cargar notificaciones'), 'error');
     } finally {
@@ -109,7 +122,7 @@ const NotificationsPage: React.FC = () => {
   };
 
   const load = async () => {
-    await loadWithFilters();
+    await loadWithFilters(offset, limit);
   };
 
   const loadAdminDestino = async (empresaId: number) => {
@@ -132,7 +145,7 @@ const NotificationsPage: React.FC = () => {
 
   useEffect(() => {
     void loadEmpresas();
-    void load();
+    void loadWithFilters(0, limit);
     // carga inicial
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,22 +163,26 @@ const NotificationsPage: React.FC = () => {
     void loadAdminDestino(empresa);
   }, [scope, idEmpresa]);
 
-  const countByScope = useMemo(() => {
-    const acc = { GLOBAL: 0, EMPRESA: 0, USUARIO: 0 };
-    for (const n of items) {
-      if (n.scope === 'GLOBAL' || n.scope === 'EMPRESA' || n.scope === 'USUARIO') {
-        acc[n.scope] += 1;
-      }
-    }
-    return acc;
-  }, [items]);
-
   const canCreate = useMemo(() => {
     if (!titulo.trim() || !mensaje.trim()) return false;
     if (scope === 'EMPRESA' && !idEmpresa.trim()) return false;
     if (scope === 'USUARIO' && (!idEmpresa.trim() || !adminDestino?.id_usuario)) return false;
     return true;
   }, [scope, idEmpresa, adminDestino, titulo, mensaje]);
+
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  const currentPage = Math.floor(offset / Math.max(1, limit)) + 1;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + items.length, total);
+  const canPrev = offset > 0;
+  const canNext = offset + limit < total;
+
+  const currentFilters = (): NotificationFilters => ({
+    scope: fScope,
+    estado: fEstado,
+    empresa: fEmpresa,
+    query: q,
+  });
 
   const onCreate = async () => {
     if (!canCreate) {
@@ -202,7 +219,7 @@ const NotificationsPage: React.FC = () => {
       setMensaje('');
       if (scope === 'GLOBAL') setIdEmpresa('');
 
-      await load();
+      await loadWithFilters(0, limit);
     } catch (error: unknown) {
       Swal.fire('Error', getErrorMessage(error, 'No se pudo crear notificacion'), 'error');
     } finally {
@@ -285,7 +302,24 @@ const NotificationsPage: React.FC = () => {
 
   const onScopeChipClick = (nextScope: NotificationScope | '') => {
     setFScope(nextScope);
-    void loadWithFilters({ scope: nextScope });
+    void loadWithFilters(0, limit, { ...currentFilters(), scope: nextScope });
+  };
+
+  const onFilter = () => {
+    void loadWithFilters(0, limit);
+  };
+
+  const onClear = () => {
+    const emptyFilters: NotificationFilters = { scope: '', estado: '', empresa: '', query: '' };
+    setFScope(emptyFilters.scope);
+    setFEstado(emptyFilters.estado);
+    setFEmpresa(emptyFilters.empresa);
+    setQ(emptyFilters.query);
+    void loadWithFilters(0, limit, emptyFilters);
+  };
+
+  const onLimitChange = (value: number) => {
+    void loadWithFilters(0, value);
   };
 
   return (
@@ -363,8 +397,11 @@ const NotificationsPage: React.FC = () => {
         <div className="col-12 col-lg-7">
           <div className="card">
             <div className="card-body">
-              <div className="d-flex align-items-center justify-content-between mb-3">
-                <h5 className="card-title mb-0">Historico</h5>
+              <div className="d-flex align-items-center justify-content-between mb-3 gap-2">
+                <div>
+                  <h5 className="card-title mb-0">Historico</h5>
+                  <div className="small text-muted">Total: {total}</div>
+                </div>
                 <button
                   className="btn btn-outline-secondary btn-sm"
                   onClick={load}
@@ -381,57 +418,79 @@ const NotificationsPage: React.FC = () => {
                   className={`btn btn-sm ${fScope === '' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => onScopeChipClick('')}
                 >
-                  Todas ({items.length})
+                  Todas
                 </button>
                 <button
                   type="button"
                   className={`btn btn-sm ${fScope === 'GLOBAL' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => onScopeChipClick('GLOBAL')}
                 >
-                  Globales ({countByScope.GLOBAL})
+                  Globales
                 </button>
                 <button
                   type="button"
                   className={`btn btn-sm ${fScope === 'EMPRESA' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => onScopeChipClick('EMPRESA')}
                 >
-                  Empresa ({countByScope.EMPRESA})
+                  Empresa
                 </button>
                 <button
                   type="button"
                   className={`btn btn-sm ${fScope === 'USUARIO' ? 'btn-primary' : 'btn-outline-primary'}`}
                   onClick={() => onScopeChipClick('USUARIO')}
                 >
-                  Usuario ({countByScope.USUARIO})
+                  Usuario
                 </button>
               </div>
 
-              <div className="row g-2 mb-3">
+              <form
+                className="row g-2 mb-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onFilter();
+                }}
+              >
                 <div className="col-12 col-md-3">
+                  <label className="form-label small mb-1">Alcance</label>
                   <select className="form-select form-select-sm" value={fScope} onChange={(e) => setFScope(parseScopeFilter(e.target.value))}>
-                    <option value="">Alcance: todos</option>
+                    <option value="">Todos</option>
                     <option value="GLOBAL">GLOBAL</option>
                     <option value="EMPRESA">EMPRESA</option>
                     <option value="USUARIO">USUARIO</option>
                   </select>
                 </div>
-                <div className="col-12 col-md-3">
+                <div className="col-6 col-md-2">
+                  <label className="form-label small mb-1">Estado</label>
                   <select className="form-select form-select-sm" value={fEstado} onChange={(e) => setFEstado(parseEstadoFilter(e.target.value))}>
-                    <option value="">Estado: todos</option>
+                    <option value="">Todos</option>
                     <option value="1">Activas</option>
                     <option value="0">Inactivas</option>
                   </select>
                 </div>
-                <div className="col-12 col-md-2">
-                  <input className="form-control form-control-sm" placeholder="Empresa ID" value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} />
+                <div className="col-6 col-md-2">
+                  <label className="form-label small mb-1">Mostrar</label>
+                  <select className="form-select form-select-sm" value={limit} onChange={(e) => onLimitChange(Number(e.target.value))}>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                  </select>
                 </div>
-                <div className="col-12 col-md-4 d-flex gap-2">
-                  <input className="form-control form-control-sm" placeholder="Buscar titulo/mensaje" value={q} onChange={(e) => setQ(e.target.value)} />
-                  <button className="btn btn-sm btn-primary" onClick={load} type="button" aria-label="Aplicar filtros">
+                <div className="col-5 col-md-2">
+                  <label className="form-label small mb-1">Empresa</label>
+                  <input className="form-control form-control-sm" placeholder="ID" value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} />
+                </div>
+                <div className="col-7 col-md-3">
+                  <label className="form-label small mb-1">Buscar</label>
+                  <input className="form-control form-control-sm" placeholder="Titulo o mensaje" value={q} onChange={(e) => setQ(e.target.value)} />
+                </div>
+                <div className="col-12 d-flex justify-content-end gap-2">
+                  <button className="btn btn-sm btn-primary" type="submit" disabled={loading}>
                     Filtrar
                   </button>
+                  <button className="btn btn-sm btn-outline-secondary" type="button" disabled={loading} onClick={onClear}>
+                    Limpiar
+                  </button>
                 </div>
-              </div>
+              </form>
 
               <div className="table-responsive">
                 <table className="table table-sm align-middle">
@@ -491,6 +550,31 @@ const NotificationsPage: React.FC = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
+                <span className="small text-muted">
+                  Mostrando {from}-{to} de {total}
+                </span>
+                <div className="d-flex align-items-center gap-2">
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    disabled={!canPrev || loading}
+                    onClick={() => loadWithFilters(Math.max(0, offset - limit), limit)}
+                  >
+                    Anterior
+                  </button>
+                  <span className="small text-muted">Pagina {currentPage} de {totalPages}</span>
+                  <button
+                    className="btn btn-sm btn-outline-secondary"
+                    type="button"
+                    disabled={!canNext || loading}
+                    onClick={() => loadWithFilters(offset + limit, limit)}
+                  >
+                    Siguiente
+                  </button>
+                </div>
               </div>
             </div>
           </div>
