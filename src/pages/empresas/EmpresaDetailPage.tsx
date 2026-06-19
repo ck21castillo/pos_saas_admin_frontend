@@ -131,7 +131,7 @@ const MODULE_SPECS: ModSpec[] = [
         key: 'bancos',
         label: 'Bancos',
         icon: 'account_balance',
-        perms: ['BANCOS__VER', 'BANCOS__MOVIMIENTO']
+        perms: ['BANCOS__VER', 'BANCOS__MOVIMIENTO', 'BANCOS__CUENTA_CREAR', 'BANCOS__CUENTA_EDITAR', 'BANCOS__CUENTA_DESACTIVAR']
     },
     {
         key: 'soporte',
