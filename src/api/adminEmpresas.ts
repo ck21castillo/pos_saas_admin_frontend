@@ -30,6 +30,19 @@ export type EmpresaCapacidadDetalle = {
   enabled: boolean;
 };
 
+
+export type EmpresaTenantMapping = {
+  modo?: string | null;
+  db_host?: string | null;
+  db_port?: string | number | null;
+  db_name?: string | null;
+  db_schema?: string | null;
+  db_user?: string | null;
+  estado?: string | null;
+  notas?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
 export type EmpresaConfiguracionNegocio = {
   ok: boolean;
   id_empresa: number;
@@ -37,6 +50,7 @@ export type EmpresaConfiguracionNegocio = {
   tipo_negocio: TipoNegocio;
   capacidades: Record<string, boolean>;
   capacidades_detalle: EmpresaCapacidadDetalle[];
+  tenant?: EmpresaTenantMapping | null;
 };
 
 export async function listEmpresas(params?: { q?: string; limit?: number; offset?: number }) {

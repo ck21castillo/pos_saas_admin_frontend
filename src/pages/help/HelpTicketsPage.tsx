@@ -2,13 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import PageLayout from '../../layout/PageLayout';
 import {
   getHelpTicket,
+  listHelpAdmins,
   listHelpTickets,
   replyHelpTicket,
+  updateHelpTicketAsignacion,
   updateHelpTicketEstado,
+  updateHelpTicketPrioridad,
+  type HelpAdminUser,
   type HelpTicketDetail,
   type HelpTicketEstado,
   type HelpTicketListItem,
   type HelpTicketMessage,
+  type HelpTicketPrioridad,
 } from '../../api/adminHelp';
 
 type ApiErrorLike = {
@@ -23,8 +28,22 @@ type ApiErrorLike = {
 
 type TicketFilters = {
   estado: HelpTicketEstado | '';
+  prioridad: HelpTicketPrioridad | '';
   q: string;
   empresaId: string;
+  assignedTo: string;
+  fechaDesde: string;
+  fechaHasta: string;
+};
+
+const emptyFilters: TicketFilters = {
+  estado: '',
+  prioridad: '',
+  q: '',
+  empresaId: '',
+  assignedTo: '',
+  fechaDesde: '',
+  fechaHasta: '',
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -45,14 +64,21 @@ function estadoBadgeClass(estado: HelpTicketEstado): string {
   return 'badge bg-success';
 }
 
+function prioridadBadgeClass(prioridad: HelpTicketPrioridad): string {
+  if (prioridad === 'URGENTE') return 'badge bg-danger';
+  if (prioridad === 'ALTA') return 'badge bg-warning text-dark';
+  if (prioridad === 'BAJA') return 'badge bg-secondary';
+  return 'badge bg-light text-dark border';
+}
+
 const HelpTicketsPage: React.FC = () => {
   const [items, setItems] = useState<HelpTicketListItem[]>([]);
+  const [admins, setAdmins] = useState<HelpAdminUser[]>([]);
+  const [assignmentEnabled, setAssignmentEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [estado, setEstado] = useState<HelpTicketEstado | ''>('');
-  const [q, setQ] = useState('');
-  const [empresaId, setEmpresaId] = useState('');
+  const [filters, setFilters] = useState<TicketFilters>(emptyFilters);
   const [limit, setLimit] = useState(25);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
@@ -66,19 +92,33 @@ const HelpTicketsPage: React.FC = () => {
   const [replyText, setReplyText] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
   const [estadoSaving, setEstadoSaving] = useState(false);
+  const [prioridadSaving, setPrioridadSaving] = useState(false);
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+
+  const updateFilter = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  };
 
   const loadList = async (
     nextOffset = offset,
     nextLimit = limit,
-    filters: TicketFilters = { estado, q, empresaId }
+    nextFilters: TicketFilters = filters
   ) => {
     setError(null);
     setLoading(true);
     try {
       const response = await listHelpTickets({
-        estado: filters.estado,
-        q: filters.q.trim() || undefined,
-        id_empresa: filters.empresaId.trim() ? Number(filters.empresaId) : undefined,
+        estado: nextFilters.estado,
+        prioridad: nextFilters.prioridad,
+        q: nextFilters.q.trim() || undefined,
+        id_empresa: nextFilters.empresaId.trim() ? Number(nextFilters.empresaId) : undefined,
+        assigned_to: nextFilters.assignedTo === 'none'
+          ? 'none'
+          : nextFilters.assignedTo.trim()
+            ? Number(nextFilters.assignedTo)
+            : undefined,
+        fecha_desde: nextFilters.fechaDesde || undefined,
+        fecha_hasta: nextFilters.fechaHasta || undefined,
         limit: nextLimit,
         offset: nextOffset,
       });
@@ -86,6 +126,7 @@ const HelpTicketsPage: React.FC = () => {
       setTotal(response.total);
       setLimit(response.limit);
       setOffset(response.offset);
+      setAssignmentEnabled(response.assignment_enabled);
 
       if (response.items.length === 0) {
         setSelectedId(null);
@@ -114,6 +155,7 @@ const HelpTicketsPage: React.FC = () => {
       const out = await getHelpTicket(id);
       setDetail(out.ticket);
       setMessages(out.messages);
+      setAssignmentEnabled(out.assignment_enabled);
     } catch (error: unknown) {
       setDetailError(getErrorMessage(error, 'No se pudo cargar el detalle'));
     } finally {
@@ -123,6 +165,9 @@ const HelpTicketsPage: React.FC = () => {
 
   useEffect(() => {
     loadList(0, limit);
+    listHelpAdmins()
+      .then(setAdmins)
+      .catch(() => setAdmins([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -145,18 +190,15 @@ const HelpTicketsPage: React.FC = () => {
   const canNext = offset + limit < total;
 
   const onFilter = async () => {
-    await loadList(0, limit);
+    await loadList(0, limit, filters);
   };
 
   const onLimitChange = async (value: number) => {
-    await loadList(0, value);
+    await loadList(0, value, filters);
   };
 
   const onClear = async () => {
-    const emptyFilters: TicketFilters = { estado: '', q: '', empresaId: '' };
-    setEstado(emptyFilters.estado);
-    setQ(emptyFilters.q);
-    setEmpresaId(emptyFilters.empresaId);
+    setFilters(emptyFilters);
     await loadList(0, limit, emptyFilters);
   };
 
@@ -167,7 +209,7 @@ const HelpTicketsPage: React.FC = () => {
       await replyHelpTicket(selectedId, replyText.trim());
       setReplyText('');
       await loadDetail(selectedId);
-      await loadList(offset, limit);
+      await loadList(offset, limit, filters);
     } catch (error: unknown) {
       alert(getErrorMessage(error, 'No se pudo enviar la respuesta'));
     } finally {
@@ -181,11 +223,39 @@ const HelpTicketsPage: React.FC = () => {
     try {
       await updateHelpTicketEstado(selectedId, next);
       await loadDetail(selectedId);
-      await loadList(offset, limit);
+      await loadList(offset, limit, filters);
     } catch (error: unknown) {
       alert(getErrorMessage(error, 'No se pudo cambiar estado'));
     } finally {
       setEstadoSaving(false);
+    }
+  };
+
+  const onChangePrioridad = async (next: HelpTicketPrioridad) => {
+    if (!selectedId) return;
+    setPrioridadSaving(true);
+    try {
+      await updateHelpTicketPrioridad(selectedId, next);
+      await loadDetail(selectedId);
+      await loadList(offset, limit, filters);
+    } catch (error: unknown) {
+      alert(getErrorMessage(error, 'No se pudo cambiar prioridad'));
+    } finally {
+      setPrioridadSaving(false);
+    }
+  };
+
+  const onChangeAsignacion = async (value: string) => {
+    if (!selectedId) return;
+    setAssignmentSaving(true);
+    try {
+      await updateHelpTicketAsignacion(selectedId, value ? Number(value) : null);
+      await loadDetail(selectedId);
+      await loadList(offset, limit, filters);
+    } catch (error: unknown) {
+      alert(getErrorMessage(error, 'No se pudo cambiar asignacion'));
+    } finally {
+      setAssignmentSaving(false);
     }
   };
 
@@ -195,7 +265,7 @@ const HelpTicketsPage: React.FC = () => {
       right={
         <button
           className="btn btn-outline-secondary btn-sm"
-          onClick={() => loadList(offset, limit)}
+          onClick={() => loadList(offset, limit, filters)}
           type="button"
         >
           Recargar
@@ -218,21 +288,21 @@ const HelpTicketsPage: React.FC = () => {
                   onFilter();
                 }}
               >
-                <div className="col-12 col-md-5">
+                <div className="col-12 col-md-6">
                   <label className="form-label small mb-1">Buscar</label>
                   <input
                     className="form-control form-control-sm"
-                    placeholder="Asunto, contacto o email"
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="ID, asunto, contacto o email"
+                    value={filters.q}
+                    onChange={(e) => updateFilter('q', e.target.value)}
                   />
                 </div>
                 <div className="col-6 col-md-3">
                   <label className="form-label small mb-1">Estado</label>
                   <select
                     className="form-select form-select-sm"
-                    value={estado}
-                    onChange={(e) => setEstado(e.target.value as HelpTicketEstado | '')}
+                    value={filters.estado}
+                    onChange={(e) => updateFilter('estado', e.target.value as HelpTicketEstado | '')}
                   >
                     <option value="">Todos</option>
                     <option value="ABIERTO">Abierto</option>
@@ -241,7 +311,21 @@ const HelpTicketsPage: React.FC = () => {
                     <option value="CERRADO">Cerrado</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-2">
+                <div className="col-6 col-md-3">
+                  <label className="form-label small mb-1">Prioridad</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={filters.prioridad}
+                    onChange={(e) => updateFilter('prioridad', e.target.value as HelpTicketPrioridad | '')}
+                  >
+                    <option value="">Todas</option>
+                    <option value="URGENTE">Urgente</option>
+                    <option value="ALTA">Alta</option>
+                    <option value="NORMAL">Normal</option>
+                    <option value="BAJA">Baja</option>
+                  </select>
+                </div>
+                <div className="col-6 col-md-3">
                   <label className="form-label small mb-1">Mostrar</label>
                   <select
                     className="form-select form-select-sm"
@@ -252,16 +336,49 @@ const HelpTicketsPage: React.FC = () => {
                     <option value={50}>50</option>
                   </select>
                 </div>
-                <div className="col-8 col-md-2">
+                <div className="col-6 col-md-3">
                   <label className="form-label small mb-1">Empresa</label>
                   <input
                     className="form-control form-control-sm"
                     placeholder="ID"
-                    value={empresaId}
-                    onChange={(e) => setEmpresaId(e.target.value)}
+                    value={filters.empresaId}
+                    onChange={(e) => updateFilter('empresaId', e.target.value)}
                   />
                 </div>
-                <div className="col-4 col-md-12 d-flex justify-content-end gap-2">
+                <div className="col-12 col-md-6">
+                  <label className="form-label small mb-1">Asignado</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={filters.assignedTo}
+                    onChange={(e) => updateFilter('assignedTo', e.target.value)}
+                    disabled={!assignmentEnabled}
+                  >
+                    <option value="">Todos</option>
+                    <option value="none">Sin asignar</option>
+                    {admins.map((admin) => (
+                      <option key={admin.id_superadmin} value={admin.id_superadmin}>{admin.email}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-6 col-md-4">
+                  <label className="form-label small mb-1">Desde</label>
+                  <input
+                    className="form-control form-control-sm"
+                    type="date"
+                    value={filters.fechaDesde}
+                    onChange={(e) => updateFilter('fechaDesde', e.target.value)}
+                  />
+                </div>
+                <div className="col-6 col-md-4">
+                  <label className="form-label small mb-1">Hasta</label>
+                  <input
+                    className="form-control form-control-sm"
+                    type="date"
+                    value={filters.fechaHasta}
+                    onChange={(e) => updateFilter('fechaHasta', e.target.value)}
+                  />
+                </div>
+                <div className="col-12 col-md-4 d-flex justify-content-end gap-2 align-items-end">
                   <button className="btn btn-sm btn-primary" type="submit" disabled={loading}>
                     Filtrar
                   </button>
@@ -277,7 +394,6 @@ const HelpTicketsPage: React.FC = () => {
               </form>
 
               {error && <div className="alert alert-danger py-2">{error}</div>}
-
               <div style={{ maxHeight: 520, overflow: 'auto' }}>
                 {loading ? (
                   <div className="text-muted">Cargando...</div>
@@ -303,8 +419,14 @@ const HelpTicketsPage: React.FC = () => {
                             <div className="small opacity-75">
                               {it.contacto_nombre ?? '-'} - {it.contacto_email ?? '-'}
                             </div>
+                            <div className="small opacity-75">
+                              Asignado: {it.assigned_to_email ?? 'Sin asignar'}
+                            </div>
                           </div>
-                          <span className={estadoBadgeClass(it.estado)}>{it.estado}</span>
+                          <div className="d-flex flex-column align-items-end gap-1">
+                            <span className={estadoBadgeClass(it.estado)}>{it.estado}</span>
+                            <span className={prioridadBadgeClass(it.prioridad)}>{it.prioridad}</span>
+                          </div>
                         </div>
                       </button>
                     ))}
@@ -321,7 +443,7 @@ const HelpTicketsPage: React.FC = () => {
                     className="btn btn-sm btn-outline-secondary"
                     type="button"
                     disabled={!canPrev || loading}
-                    onClick={() => loadList(Math.max(0, offset - limit), limit)}
+                    onClick={() => loadList(Math.max(0, offset - limit), limit, filters)}
                   >
                     Anterior
                   </button>
@@ -332,7 +454,7 @@ const HelpTicketsPage: React.FC = () => {
                     className="btn btn-sm btn-outline-secondary"
                     type="button"
                     disabled={!canNext || loading}
-                    onClick={() => loadList(offset + limit, limit)}
+                    onClick={() => loadList(offset + limit, limit, filters)}
                   >
                     Siguiente
                   </button>
@@ -356,25 +478,62 @@ const HelpTicketsPage: React.FC = () => {
                   <div className="d-flex flex-wrap gap-2 align-items-center mb-3">
                     <span className="badge text-bg-dark">#{detail.id_ticket}</span>
                     <span className={estadoBadgeClass(detail.estado)}>{detail.estado}</span>
+                    <span className={prioridadBadgeClass(detail.prioridad)}>{detail.prioridad}</span>
                     <span className="badge text-bg-secondary">Empresa {detail.id_empresa}</span>
-                    <select
-                      className="form-select form-select-sm"
-                      style={{ width: 180 }}
-                      value={detail.estado}
-                      onChange={(e) => onChangeEstado(e.target.value as HelpTicketEstado)}
-                      disabled={estadoSaving}
-                    >
-                      <option value="ABIERTO">ABIERTO</option>
-                      <option value="EN_PROCESO">EN_PROCESO</option>
-                      <option value="RESPONDIDO">RESPONDIDO</option>
-                      <option value="CERRADO">CERRADO</option>
-                    </select>
+                  </div>
+
+                  <div className="row g-2 mb-3">
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">Estado</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={detail.estado}
+                        onChange={(e) => onChangeEstado(e.target.value as HelpTicketEstado)}
+                        disabled={estadoSaving}
+                      >
+                        <option value="ABIERTO">ABIERTO</option>
+                        <option value="EN_PROCESO">EN_PROCESO</option>
+                        <option value="RESPONDIDO">RESPONDIDO</option>
+                        <option value="CERRADO">CERRADO</option>
+                      </select>
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">Prioridad</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={detail.prioridad}
+                        onChange={(e) => onChangePrioridad(e.target.value as HelpTicketPrioridad)}
+                        disabled={prioridadSaving}
+                      >
+                        <option value="URGENTE">URGENTE</option>
+                        <option value="ALTA">ALTA</option>
+                        <option value="NORMAL">NORMAL</option>
+                        <option value="BAJA">BAJA</option>
+                      </select>
+                    </div>
+                    <div className="col-12 col-md-4">
+                      <label className="form-label small mb-1">Asignado a</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={detail.assigned_to ?? ''}
+                        onChange={(e) => onChangeAsignacion(e.target.value)}
+                        disabled={!assignmentEnabled || assignmentSaving}
+                      >
+                        <option value="">Sin asignar</option>
+                        {admins.map((admin) => (
+                          <option key={admin.id_superadmin} value={admin.id_superadmin}>{admin.email}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="mb-3">
                     <div className="fw-semibold">{detail.asunto}</div>
                     <div className="small text-muted">
                       Contacto: {detail.contacto_nombre ?? '-'} - {detail.contacto_email ?? '-'}
+                    </div>
+                    <div className="small text-muted">
+                      Asignado: {detail.assigned_to_email ?? 'Sin asignar'}
                     </div>
                     <div className="small text-muted">
                       Creado: {fmtDate(detail.created_at)} - Actualizado: {fmtDate(detail.updated_at)}
