@@ -7,6 +7,7 @@ function errorLabel(value?: string | null): string {
     if (!value) return '';
     const labels: Record<string, string> = {
         INVALID_CREDENTIALS: 'Credenciales invalidas.',
+        RATE_LIMITED: 'Demasiados intentos. Espera unos minutos e intenta nuevamente.',
         OTP_REQUIRED: 'Ingresa el codigo enviado a tu correo.',
         OTP_INVALID: 'Codigo incorrecto.',
         OTP_EXPIRED: 'El codigo vencio. Inicia sesion nuevamente.',

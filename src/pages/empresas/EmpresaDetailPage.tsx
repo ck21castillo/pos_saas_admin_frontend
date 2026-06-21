@@ -17,6 +17,7 @@ import {
     type TipoNegocio,
     type EmpresaUsuarioItem,
 } from '../../api/adminEmpresas';
+import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
 
 type ModRow = EmpresaModuloItem;
 type PermRow = EmpresaPermisoItem;
@@ -166,6 +167,24 @@ function normCode(x: unknown): string {
     return String(x ?? '').trim().toUpperCase();
 }
 
+function dateText(value?: string | null): string {
+    if (!value) return '-';
+    return String(value).replace('T', ' ').replace('Z', '');
+}
+
+function tenantHealthBadge(status?: string | null): string {
+    if (status === 'OK') return 'badge bg-success';
+    if (status === 'WARNING') return 'badge bg-warning text-dark';
+    if (status === 'ERROR') return 'badge bg-danger';
+    return 'badge bg-secondary';
+}
+
+function tenantHealthLabel(status?: string | null): string {
+    if (status === 'OK') return 'OK';
+    if (status === 'WARNING') return 'Alerta';
+    if (status === 'ERROR') return 'Error';
+    return 'Sin verificar';
+}
 export default function EmpresaDetailPage() {
     const { id } = useParams();
     const idEmpresa = Number(id || 0);
@@ -176,15 +195,17 @@ export default function EmpresaDetailPage() {
     const [perms, setPerms] = useState<PermRow[]>([]);
     const [users, setUsers] = useState<UserRow[]>([]);
     const [businessConfig, setBusinessConfig] = useState<EmpresaConfiguracionNegocio | null>(null);
+    const [tenantHealth, setTenantHealth] = useState<TenantHealthItem | null>(null);
+    const [tenantChecking, setTenantChecking] = useState(false);
     const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>('GENERAL');
     const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // 👇 NUEVO: módulo seleccionado para la vista permisos
+    // NUEVO: módulo seleccionado para la vista permisos
     const [selectedModuleKey, setSelectedModuleKey] = useState<string>(MODULE_SPECS[0]?.key ?? 'pos');
 
-    // 👇 opcional: ver permisos que no están mapeados (por defecto: NO)
+    // opcional: ver permisos que no están mapeados (por defecto: NO)
     const [showUnmapped, setShowUnmapped] = useState(false);
 
     const load = async () => {
@@ -200,6 +221,7 @@ export default function EmpresaDetailPage() {
             setPerms(p.items ?? []);
             setUsers(u.items ?? []);
             setBusinessConfig(c);
+            setTenantHealth(null);
             setTipoNegocio(c.tipo_negocio ?? 'GENERAL');
             setCapabilityValues(c.capacidades ?? {});
         } finally {
@@ -271,6 +293,33 @@ export default function EmpresaDetailPage() {
         await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
     };
 
+
+    const verifyTenant = async () => {
+        setTenantChecking(true);
+        void Swal.fire({
+            title: 'Verificando tenant',
+            text: 'Revisando conexion, tablas, conteos y actividad reciente.',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            didOpen: () => Swal.showLoading(),
+        });
+
+        try {
+            const out = await getTenantHealth(idEmpresa, true);
+            setTenantHealth(out.item);
+            const icon = out.item.health_status === 'OK' ? 'success' : out.item.health_status === 'WARNING' ? 'warning' : 'error';
+            await Swal.fire({
+                icon,
+                title: `Resultado: ${tenantHealthLabel(out.item.health_status)}`,
+                text: out.item.errors?.[0] || out.item.warnings?.[0] || 'Tenant verificado correctamente.',
+                confirmButtonText: 'Entendido',
+            });
+        } catch {
+            await Swal.fire('Error', 'No se pudo verificar el tenant de esta empresa.', 'error');
+        } finally {
+            setTenantChecking(false);
+        }
+    };
     const saveBusinessConfig = async () => {
         const r = await saveEmpresaConfiguracionNegocio(idEmpresa, {
             tipo_negocio: tipoNegocio,
@@ -352,10 +401,12 @@ export default function EmpresaDetailPage() {
         return BUSINESS_TYPE_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? BUSINESS_TYPE_OPTIONS[0];
     }, [tipoNegocio]);
 
+    const tenant = businessConfig?.tenant ?? null;
+
     return (
         <PageLayout
             title={`Empresa #${idEmpresa}`}
-            right={<a className="btn btn-outline-secondary btn-sm" href="#/empresas">← Volver</a>}
+            right={<a className="btn btn-outline-secondary btn-sm" href="#/empresas">Volver</a>}
         >
             <div className="d-flex gap-2 align-items-center mb-3 flex-wrap">
                 <div className="btn-group">
@@ -434,7 +485,7 @@ export default function EmpresaDetailPage() {
             </div>
 
             {loading ? (
-                <div className="py-4">Cargando…</div>
+                <div className="py-4">Cargando...</div>
             ) : tab === 'configuracion' ? (
                 <div className="row g-3">
                     <div className="col-12 col-lg-5">
@@ -466,6 +517,76 @@ export default function EmpresaDetailPage() {
                                         ID {idEmpresa}
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="card mt-3">
+                            <div className="card-body">
+                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
+                                    <div>
+                                        <div className="fw-bold">Tenant multibase</div>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            Datos reales de conexion y estado del mapping.
+                                        </div>
+                                    </div>
+                                    <span className={tenant?.estado === 'ACTIVE' ? 'badge bg-success' : 'badge bg-secondary'}>
+                                        {tenant?.estado ?? 'SIN_MAPPING'}
+                                    </span>
+                                </div>
+
+                                {!tenant ? (
+                                    <div className="alert alert-warning py-2 mb-0" style={{ fontSize: 13 }}>
+                                        Esta empresa no tiene tenant asignado en admin.tenant_database.
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="row g-2 small">
+                                            <div className="col-12">
+                                                <div className="text-muted">Base de datos</div>
+                                                <code>{tenant.db_name || '-'}</code>
+                                            </div>
+                                            <div className="col-6">
+                                                <div className="text-muted">Usuario BD</div>
+                                                <code>{tenant.db_user || '-'}</code>
+                                            </div>
+                                            <div className="col-6">
+                                                <div className="text-muted">Schema</div>
+                                                <code>{tenant.db_schema || '-'}</code>
+                                            </div>
+                                            <div className="col-6">
+                                                <div className="text-muted">Creado</div>
+                                                <div>{dateText(tenant.created_at)}</div>
+                                            </div>
+                                            <div className="col-6">
+                                                <div className="text-muted">Actualizado</div>
+                                                <div>{dateText(tenant.updated_at)}</div>
+                                            </div>
+                                            <div className="col-12">
+                                                <div className="text-muted">Ultimo check</div>
+                                                <div className="d-flex align-items-center gap-2 flex-wrap">
+                                                    <span>{dateText(tenantHealth?.checked_at)}</span>
+                                                    <span className={tenantHealthBadge(tenantHealth?.health_status)}>
+                                                        {tenantHealthLabel(tenantHealth?.health_status)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="d-flex gap-2 flex-wrap mt-3">
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-primary btn-sm"
+                                                onClick={verifyTenant}
+                                                disabled={tenantChecking}
+                                            >
+                                                {tenantChecking ? 'Verificando...' : 'Verificar tenant'}
+                                            </button>
+                                            <a className="btn btn-outline-secondary btn-sm" href="#/salud-tenants">
+                                                Abrir salud multibase
+                                            </a>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -576,7 +697,7 @@ export default function EmpresaDetailPage() {
                     </table>
                 </div>
             ) : tab === 'permisos' ? (
-                // ✅ NUEVO: UI permisos por módulo (click -> lista)
+                // NUEVO: UI permisos por módulo (click -> lista)
                 <div className="row g-3">
                     {/* Columna izquierda: módulos */}
                     <div className="col-12 col-lg-4">
@@ -609,7 +730,7 @@ export default function EmpresaDetailPage() {
                                 </div>
 
                                 <div className="text-muted mt-2" style={{ fontSize: 12 }}>
-                                    Solo se muestran permisos “usados” por el sistema (mapeados a módulos).
+                                    Solo se muestran permisos usados por el sistema (mapeados a módulos).
                                 </div>
                             </div>
                         </div>
@@ -623,7 +744,7 @@ export default function EmpresaDetailPage() {
                                     <div>
                                         <div className="fw-bold">{selectedModule?.label ?? 'Módulo'}</div>
                                         <div className="text-muted" style={{ fontSize: 12 }}>
-                                            {moduleStats.enabled}/{moduleStats.total} habilitados · haz click para activar/desactivar
+                                            {moduleStats.enabled}/{moduleStats.total} habilitados - haz click para activar/desactivar
                                         </div>
                                     </div>
                                 </div>
@@ -631,7 +752,7 @@ export default function EmpresaDetailPage() {
                                 {moduleMissingInDb.length > 0 && (
                                     <div className="alert alert-warning py-2 mt-3">
                                         <small>
-                                            ⚠️ Hay permisos definidos en el módulo que no existen en la BD:
+                                            Aviso: Hay permisos definidos en el módulo que no existen en la BD:
                                             <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                                                 {' '}
                                                 {moduleMissingInDb.join(', ')}

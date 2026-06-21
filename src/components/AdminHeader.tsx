@@ -6,13 +6,21 @@ import { adminLogout } from '../store/adminAuthSlice';
 import MI from './MI';
 import '../styles/Header.css';
 
+function displayNameFromEmail(email: string): string {
+    const local = email.split('@')[0] || 'admin';
+    const first = local.split(/[._-]/).filter(Boolean)[0] || local;
+    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
+
 export default function AdminHeader() {
     const dispatch = useDispatch<AppDispatch>();
     const collapsed = useSelector((s: RootState) => s.ui.sidebarCollapsed);
-    const adminEmail = useSelector((s: RootState) => s.adminAuth.admin?.email) ?? 'admin';
+    const adminEmail = useSelector((s: RootState) => s.adminAuth.admin?.email) ?? 'admin@bersanopos.com';
 
     const [open, setOpen] = React.useState(false);
     const ref = React.useRef<HTMLDivElement>(null);
+    const initials = (adminEmail.trim()[0] || 'A').toUpperCase();
+    const name = displayNameFromEmail(adminEmail);
 
     React.useEffect(() => {
         const onDown = (e: MouseEvent) => {
@@ -22,11 +30,8 @@ export default function AdminHeader() {
         return () => document.removeEventListener('mousedown', onDown);
     }, []);
 
-    const initials = (adminEmail?.trim()?.[0] ?? 'A').toUpperCase();
-
     const onLogout = async () => {
         await dispatch(adminLogout());
-        // con HashRouter:
         window.location.hash = '#/login';
     };
 
@@ -34,26 +39,27 @@ export default function AdminHeader() {
         <header className="header-container">
             <button
                 className="header-burger"
-                aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
-                title={collapsed ? 'Expandir menú' : 'Colapsar menú'}
+                aria-label={collapsed ? 'Expandir menu' : 'Colapsar menu'}
+                title={collapsed ? 'Expandir menu' : 'Colapsar menu'}
                 onClick={() => dispatch(toggleSidebar())}
             >
                 <MI name={collapsed ? 'menu_open' : 'menu'} />
             </button>
 
-            <div className="header-title">Panel Administrativo — BersanoPOS</div>
+            <h1 className="header-user-name">Hola, {name}</h1>
 
-            <div className="header-right" ref={ref}>
+            <div className="header-user" ref={ref}>
                 <button className="header-user-btn" onClick={() => setOpen(v => !v)}>
                     <span className="header-avatar">{initials}</span>
-                    <span style={{ fontSize: 13, opacity: 0.9 }}>{adminEmail}</span>
+                    <span className="header-user-email">{adminEmail}</span>
                     <MI name="expand_more" />
                 </button>
 
                 {open && (
                     <div className="header-menu" role="menu">
-                        <button onClick={onLogout}>
-                            <MI name="logout" /> Cerrar sesión
+                        <div className="header-menu-email">{adminEmail}</div>
+                        <button className="header-menu-item" onClick={onLogout}>
+                            <MI name="logout" /> Cerrar sesion
                         </button>
                     </div>
                 )}
