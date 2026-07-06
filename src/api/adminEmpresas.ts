@@ -76,6 +76,93 @@ export async function saveEmpresaConfiguracionNegocio(
   return data as EmpresaConfiguracionNegocio;
 }
 
+export async function downloadInventarioInicialTemplate(idEmpresa: number) {
+  const response = await adminClient.get(`/admin/empresas/${idEmpresa}/inventario-import/plantilla`, {
+    responseType: 'blob',
+  });
+  const disposition = String(response.headers['content-disposition'] || '');
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  const filename = match?.[1] || `plantilla_inventario_inicial_empresa_${idEmpresa}.xlsx`;
+
+  const url = window.URL.createObjectURL(response.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export type InventarioImportIssue = {
+  row: number | null;
+  field?: string | null;
+  message: string;
+};
+
+export type InventarioImportPreviewItem = {
+  row: number;
+  status: 'OK' | 'ERROR' | string;
+  nombre: string;
+  sku?: string;
+  codigo_barras?: string;
+  precio?: string;
+  stock?: string;
+  tipo_cantidad?: string;
+  errors: string[];
+  warnings: string[];
+};
+
+export type InventarioImportPreview = {
+  ok: boolean;
+  id_empresa: number;
+  filename: string;
+  summary: {
+    rows_read: number;
+    valid_rows: number;
+    rows_with_errors: number;
+    errors: number;
+    warnings: number;
+    can_confirm: boolean;
+  };
+  errors: InventarioImportIssue[];
+  warnings: InventarioImportIssue[];
+  items: InventarioImportPreviewItem[];
+};
+
+export async function previewInventarioInicialImport(idEmpresa: number, file: File) {
+  const form = new FormData();
+  form.append('archivo', file);
+  const { data } = await adminClient.post(`/admin/empresas/${idEmpresa}/inventario-import/preview`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data as InventarioImportPreview;
+}
+
+export type InventarioImportConfirm = {
+  ok: boolean;
+  message?: string;
+  id_empresa?: number;
+  id_inicial?: number;
+  summary?: {
+    productos_creados: number;
+    inventarios_creados: number;
+    lotes_creados: number;
+    presentaciones_creadas: number;
+    movimientos_creados: number;
+  };
+  preview?: InventarioImportPreview;
+};
+
+export async function confirmInventarioInicialImport(idEmpresa: number, file: File) {
+  const form = new FormData();
+  form.append('archivo', file);
+  const { data } = await adminClient.post(`/admin/empresas/${idEmpresa}/inventario-import/confirm`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data as InventarioImportConfirm;
+}
+
 export type EmpresaModuloItem = {
   id_modulo: number;
   nombre: string;
