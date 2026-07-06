@@ -10,12 +10,16 @@ import {
     getEmpresaUsuarios,
     getEmpresaConfiguracionNegocio,
     saveEmpresaConfiguracionNegocio,
+    downloadInventarioInicialTemplate,
+    previewInventarioInicialImport,
+    confirmInventarioInicialImport,
     type EmpresaConfiguracionNegocio,
     type EmpresaCapacidadDetalle,
     type EmpresaModuloItem,
     type EmpresaPermisoItem,
     type TipoNegocio,
     type EmpresaUsuarioItem,
+    type InventarioImportPreview,
 } from '../../api/adminEmpresas';
 import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
 
@@ -197,6 +201,10 @@ export default function EmpresaDetailPage() {
     const [businessConfig, setBusinessConfig] = useState<EmpresaConfiguracionNegocio | null>(null);
     const [tenantHealth, setTenantHealth] = useState<TenantHealthItem | null>(null);
     const [tenantChecking, setTenantChecking] = useState(false);
+    const [inventoryImportFile, setInventoryImportFile] = useState<File | null>(null);
+    const [inventoryImportPreview, setInventoryImportPreview] = useState<InventarioImportPreview | null>(null);
+    const [inventoryImportChecking, setInventoryImportChecking] = useState(false);
+    const [inventoryImportConfirming, setInventoryImportConfirming] = useState(false);
     const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>('GENERAL');
     const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
@@ -329,6 +337,128 @@ export default function EmpresaDetailPage() {
         setTipoNegocio(r.tipo_negocio ?? 'GENERAL');
         setCapabilityValues(r.capacidades ?? {});
         await Swal.fire({ icon: 'success', title: 'Guardado', text: 'Configuración de negocio actualizada' });
+    };
+
+    const downloadTemplate = async () => {
+        try {
+            await downloadInventarioInicialTemplate(idEmpresa);
+        } catch {
+            await Swal.fire({
+                icon: 'error',
+                title: 'No se pudo descargar',
+                text: 'Intenta verificar la empresa y vuelve a generar la plantilla.',
+            });
+        }
+    };
+
+    const previewInventoryImport = async () => {
+        if (!inventoryImportFile) {
+            await Swal.fire({
+                icon: 'warning',
+                title: 'Selecciona un archivo',
+                text: 'Primero elige la plantilla Excel diligenciada.',
+            });
+            return;
+        }
+
+        setInventoryImportChecking(true);
+        setInventoryImportPreview(null);
+        try {
+            const out = await previewInventarioInicialImport(idEmpresa, inventoryImportFile);
+            setInventoryImportPreview(out);
+            if (out.summary?.can_confirm) {
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Archivo validado',
+                    text: `${out.summary.valid_rows} productos listos para importar en el siguiente paso.`,
+                });
+            } else {
+                await Swal.fire({
+                    icon: out.summary?.rows_read ? 'warning' : 'error',
+                    title: 'Revisa el archivo',
+                    text: out.errors?.[0]?.message || 'Hay datos por corregir antes de importar.',
+                });
+            }
+        } catch (err: unknown) {
+            const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+            await Swal.fire({
+                icon: 'error',
+                title: 'No se pudo leer el archivo',
+                text: message || 'Verifica que sea la plantilla Excel descargada desde este panel.',
+            });
+        } finally {
+            setInventoryImportChecking(false);
+        }
+    };
+
+    const confirmInventoryImport = async () => {
+        if (!inventoryImportFile || !inventoryImportPreview?.summary?.can_confirm) {
+            await Swal.fire({
+                icon: 'warning',
+                title: 'Primero previsualiza',
+                text: 'Valida el archivo y corrige errores antes de confirmar la importacion.',
+            });
+            return;
+        }
+
+        const answer = await Swal.fire({
+            icon: 'warning',
+            title: 'Confirmar importacion',
+            html: `
+                <div style="text-align:left">
+                    <p>Se crearan <b>${inventoryImportPreview.summary.valid_rows}</b> productos con inventario inicial en el tenant de esta empresa.</p>
+                    <p>Esta accion tambien puede crear categorias, proveedores, unidades, impuestos, lotes y presentaciones si vienen en el archivo.</p>
+                </div>
+            `,
+            showCancelButton: true,
+            confirmButtonText: 'Si, importar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#2563eb',
+        });
+
+        if (!answer.isConfirmed) {
+            return;
+        }
+
+        setInventoryImportConfirming(true);
+        try {
+            const out = await confirmInventarioInicialImport(idEmpresa, inventoryImportFile);
+            if (out.preview) {
+                setInventoryImportPreview(out.preview);
+            }
+            if (!out.ok) {
+                await Swal.fire({
+                    icon: 'warning',
+                    title: 'No se pudo importar',
+                    text: out.message || 'El archivo aun tiene datos por corregir.',
+                });
+                return;
+            }
+
+            setInventoryImportFile(null);
+            setInventoryImportPreview(null);
+            await Swal.fire({
+                icon: 'success',
+                title: 'Inventario importado',
+                html: `
+                    <div style="text-align:left">
+                        <p>Registro inicial: <b>#${out.id_inicial ?? '-'}</b></p>
+                        <p>Productos: <b>${out.summary?.productos_creados ?? 0}</b></p>
+                        <p>Lotes: <b>${out.summary?.lotes_creados ?? 0}</b></p>
+                        <p>Presentaciones: <b>${out.summary?.presentaciones_creadas ?? 0}</b></p>
+                    </div>
+                `,
+            });
+        } catch (err: unknown) {
+            const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+            await Swal.fire({
+                icon: 'error',
+                title: 'Error importando',
+                text: message || 'No se pudo confirmar la importacion.',
+            });
+        } finally {
+            setInventoryImportConfirming(false);
+        }
     };
 
     /** ===========================
@@ -589,6 +719,149 @@ export default function EmpresaDetailPage() {
                                 )}
                             </div>
                         </div>
+
+                        <div className="card mt-3">
+                            <div className="card-body">
+                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                                    <div>
+                                        <div className="fw-bold">Implementacion inicial</div>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            Plantilla organizada segun el tipo de negocio y sus capacidades activas.
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-primary btn-sm"
+                                        onClick={downloadTemplate}
+                                        disabled={!businessConfig}
+                                    >
+                                         Descargar plantilla Excel
+                                     </button>
+                                 </div>
+                                 <div className="text-muted mt-2" style={{ fontSize: 12 }}>
+                                     Incluye columnas obligatorias, campos opcionales y columnas especiales para lotes, peso o presentaciones cuando apliquen.
+                                 </div>
+                                <div className="border-top mt-3 pt-3">
+                                    <div className="fw-bold mb-1">Previsualizar archivo diligenciado</div>
+                                    <div className="text-muted mb-2" style={{ fontSize: 12 }}>
+                                        La previsualizacion valida el Excel y busca errores antes de crear productos o inventario.
+                                    </div>
+                                    <input
+                                        type="file"
+                                        className="form-control form-control-sm"
+                                        accept=".xlsx"
+                                        onChange={(e) => {
+                                            setInventoryImportFile(e.target.files?.[0] ?? null);
+                                            setInventoryImportPreview(null);
+                                        }}
+                                    />
+                                    <div className="d-flex gap-2 flex-wrap mt-2">
+                                        <button
+                                            type="button"
+                                            className="btn btn-outline-success btn-sm"
+                                            onClick={previewInventoryImport}
+                                            disabled={inventoryImportChecking || inventoryImportConfirming || !inventoryImportFile}
+                                        >
+                                            {inventoryImportChecking ? 'Validando...' : 'Previsualizar archivo'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-success btn-sm"
+                                            onClick={confirmInventoryImport}
+                                            disabled={
+                                                inventoryImportChecking
+                                                || inventoryImportConfirming
+                                                || !inventoryImportFile
+                                                || !inventoryImportPreview?.summary?.can_confirm
+                                            }
+                                        >
+                                            {inventoryImportConfirming ? 'Importando...' : 'Confirmar importacion'}
+                                        </button>
+                                        {inventoryImportFile && (
+                                            <span className="text-muted align-self-center" style={{ fontSize: 12 }}>
+                                                {inventoryImportFile.name}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {inventoryImportPreview && (
+                                        <div className="mt-3">
+                                            <div className="d-flex gap-2 flex-wrap mb-2">
+                                                <span className="badge text-bg-light border">Leidas: {inventoryImportPreview.summary.rows_read}</span>
+                                                <span className="badge text-bg-success">Validas: {inventoryImportPreview.summary.valid_rows}</span>
+                                                <span className="badge text-bg-danger">Con errores: {inventoryImportPreview.summary.rows_with_errors}</span>
+                                                <span className="badge text-bg-warning">Advertencias: {inventoryImportPreview.summary.warnings}</span>
+                                            </div>
+
+                                            {inventoryImportPreview.summary.can_confirm ? (
+                                                <div className="alert alert-success py-2" style={{ fontSize: 13 }}>
+                                                    Archivo listo para confirmar en el siguiente paso. Aun no se ha insertado nada.
+                                                </div>
+                                            ) : (
+                                                <div className="alert alert-warning py-2" style={{ fontSize: 13 }}>
+                                                    Corrige los errores antes de importar. Aun no se ha insertado nada.
+                                                </div>
+                                            )}
+
+                                            {inventoryImportPreview.errors.length > 0 && (
+                                                <div className="mb-2">
+                                                    <div className="fw-bold" style={{ fontSize: 13 }}>Errores principales</div>
+                                                    <ul className="mb-0 ps-3" style={{ fontSize: 12 }}>
+                                                        {inventoryImportPreview.errors.slice(0, 8).map((err, idx) => (
+                                                            <li key={`${err.row ?? 'g'}-${idx}`}>
+                                                                {err.row ? `Fila ${err.row}: ` : ''}{err.message}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+
+                                            <div className="table-responsive">
+                                                <table className="table table-sm align-middle mb-0">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Fila</th>
+                                                            <th>Producto</th>
+                                                            <th>Stock</th>
+                                                            <th>Precio</th>
+                                                            <th>Estado</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {inventoryImportPreview.items.length === 0 ? (
+                                                            <tr>
+                                                                <td colSpan={5} className="text-muted">No hay filas de producto para mostrar.</td>
+                                                            </tr>
+                                                        ) : (
+                                                            inventoryImportPreview.items.slice(0, 10).map((item) => (
+                                                                <tr key={item.row}>
+                                                                    <td>{item.row}</td>
+                                                                    <td>
+                                                                        <div style={{ fontWeight: 600 }}>{item.nombre || '-'}</div>
+                                                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                                                            {item.sku || item.codigo_barras || '-'}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td>{item.stock || '-'}</td>
+                                                                    <td>{item.precio || '-'}</td>
+                                                                    <td>
+                                                                        {item.status === 'OK' ? (
+                                                                            <span className="badge bg-success">OK</span>
+                                                                        ) : (
+                                                                            <span className="badge bg-danger">Error</span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                            ))
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                             </div>
+                         </div>
                     </div>
 
                     <div className="col-12 col-lg-7">
