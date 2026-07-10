@@ -106,7 +106,16 @@ export const adminLogout = createAsyncThunk('adminAuth/logout', async () => {
 const slice = createSlice({
   name: 'adminAuth',
   initialState,
-  reducers: {},
+  reducers: {
+    adminSessionCleared(state) {
+      state.status = 'not-authenticated';
+      state.admin = null;
+      state.error = null;
+      state.otpRequired = false;
+      state.otpEmail = null;
+      state.otpTtl = null;
+    },
+  },
   extraReducers: (b) => {
     b.addCase(adminMe.pending, (s) => {
       s.status = 'checking';
@@ -196,4 +205,5 @@ const slice = createSlice({
   },
 });
 
+export const { adminSessionCleared } = slice.actions;
 export default slice.reducer;

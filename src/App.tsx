@@ -4,6 +4,7 @@ import { useDispatch } from 'react-redux';
 import type { AppDispatch } from './store/store';
 import { adminMe } from './store/adminAuthSlice';
 import AppRouter from './routes/AppRouter';
+import AdminReauthModal from './components/AdminReauthModal';
 
 const PUBLIC_PATHS = ['/login'];
 
@@ -27,6 +28,7 @@ export default function App() {
   return (
     <HashRouter>
       <InitAuth>
+        <AdminReauthModal />
         <AppRouter />
       </InitAuth>
     </HashRouter>
