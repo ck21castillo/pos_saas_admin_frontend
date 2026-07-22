@@ -22,6 +22,7 @@ import {
     type InventarioImportPreview,
 } from '../../api/adminEmpresas';
 import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
+import SaasSubscriptionPanel from './SaasSubscriptionPanel';
 
 type ModRow = EmpresaModuloItem;
 type PermRow = EmpresaPermisoItem;
@@ -139,6 +140,25 @@ const MODULE_SPECS: ModSpec[] = [
         perms: ['BANCOS__VER', 'BANCOS__MOVIMIENTO', 'BANCOS__CUENTA_CREAR', 'BANCOS__CUENTA_EDITAR', 'BANCOS__CUENTA_DESACTIVAR']
     },
     {
+        key: 'gastos',
+        label: 'Gastos',
+        icon: 'request_quote',
+        perms: [
+            'GASTOS__VER',
+            'GASTOS__CREAR',
+            'GASTOS__EDITAR',
+            'GASTOS__ANULAR',
+            'GASTOS__EXPORTAR',
+            'GASTOS__CATEGORIAS_EDITAR',
+        ],
+    },
+    {
+        key: 'reportes-contables',
+        label: 'Reportes contables',
+        icon: 'analytics',
+        perms: ['CONTABLES__VER', 'CONTABLES__EXPORTAR'],
+    },
+    {
         key: 'soporte',
         label: 'Soporte',
         icon: 'support_agent',
@@ -193,7 +213,7 @@ export default function EmpresaDetailPage() {
     const { id } = useParams();
     const idEmpresa = Number(id || 0);
 
-    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'permisos' | 'usuarios'>('configuracion');
+    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'permisos' | 'usuarios' | 'suscripcion'>('configuracion');
 
     const [mods, setMods] = useState<ModRow[]>([]);
     const [perms, setPerms] = useState<PermRow[]>([]);
@@ -564,6 +584,12 @@ export default function EmpresaDetailPage() {
                     >
                         Usuarios
                     </button>
+                    <button
+                        className={`btn btn-sm ${tab === 'suscripcion' ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => setTab('suscripcion')}
+                    >
+                        Suscripcion
+                    </button>
                 </div>
 
                 <input
@@ -616,6 +642,8 @@ export default function EmpresaDetailPage() {
 
             {loading ? (
                 <div className="py-4">Cargando...</div>
+            ) : tab === 'suscripcion' ? (
+                <SaasSubscriptionPanel idEmpresa={idEmpresa} />
             ) : tab === 'configuracion' ? (
                 <div className="row g-3">
                     <div className="col-12 col-lg-5">
@@ -735,12 +763,12 @@ export default function EmpresaDetailPage() {
                                         onClick={downloadTemplate}
                                         disabled={!businessConfig}
                                     >
-                                         Descargar plantilla Excel
-                                     </button>
-                                 </div>
-                                 <div className="text-muted mt-2" style={{ fontSize: 12 }}>
-                                     Incluye columnas obligatorias, campos opcionales y columnas especiales para lotes, peso o presentaciones cuando apliquen.
-                                 </div>
+                                        Descargar plantilla Excel
+                                    </button>
+                                </div>
+                                <div className="text-muted mt-2" style={{ fontSize: 12 }}>
+                                    Incluye columnas obligatorias, campos opcionales y columnas especiales para lotes, peso o presentaciones cuando apliquen.
+                                </div>
                                 <div className="border-top mt-3 pt-3">
                                     <div className="fw-bold mb-1">Previsualizar archivo diligenciado</div>
                                     <div className="text-muted mb-2" style={{ fontSize: 12 }}>
@@ -860,8 +888,8 @@ export default function EmpresaDetailPage() {
                                         </div>
                                     )}
                                 </div>
-                             </div>
-                         </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="col-12 col-lg-7">
@@ -944,7 +972,7 @@ export default function EmpresaDetailPage() {
                                 <th style={{ width: 90 }}>ID</th>
                                 <th>Módulo</th>
                                 <th>Ruta</th>
-                                <th style={{ width: 110 }}>Enabled</th>
+                                <th style={{ width: 110 }}>Habilitar</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1040,7 +1068,7 @@ export default function EmpresaDetailPage() {
                                             <tr>
                                                 <th>Código</th>
                                                 <th>Descripción</th>
-                                                <th style={{ width: 110 }}>Enabled</th>
+                                                <th style={{ width: 110 }}>Habilitar</th>
                                             </tr>
                                         </thead>
                                         <tbody>

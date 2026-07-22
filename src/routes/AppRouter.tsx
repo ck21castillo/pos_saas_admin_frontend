@@ -9,6 +9,7 @@ const LoginPage = lazy(() => import('../pages/login/LoginPage'));
 const AdminDashboardPage = lazy(() => import('../pages/dashboard/AdminDashboardPage'));
 const EmpresasPage = lazy(() => import('../pages/empresas/EmpresasPage'));
 const EmpresaDetailPage = lazy(() => import('../pages/empresas/EmpresaDetailPage'));
+const SaasPlansPage = lazy(() => import('../pages/saas/SaasPlansPage'));
 const OnboardingPage = lazy(() => import('../pages/onboarding/OnboardingPage'));
 const HelpTicketsPage = lazy(() => import('../pages/help/HelpTicketsPage'));
 const NotificationsPage = lazy(() => import('../pages/notifications/NotificationsPage'));
@@ -42,6 +43,7 @@ export default function AppRouter() {
                         <Route path="/dashboard" element={<AdminDashboardPage />} />
                         <Route path="/empresas" element={<EmpresasPage />} />
                         <Route path="/empresas/:id" element={<EmpresaDetailPage />} />
+                        <Route path="/planes-precios" element={<SaasPlansPage />} />
                         <Route path="/onboarding" element={<OnboardingPage />} />
                         <Route path="/ayuda" element={<HelpTicketsPage />} />
                         <Route path="/notificaciones" element={<NotificationsPage />} />
@@ -57,3 +59,4 @@ export default function AppRouter() {
         </Suspense>
     );
 }
+
