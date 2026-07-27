@@ -1,4 +1,4 @@
-import adminClient from './adminClient';
+﻿import adminClient from './adminClient';
 import type { AxiosRequestConfig } from 'axios';
 
 export type InvitationRequestEstado = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA';
@@ -100,7 +100,7 @@ export async function updateInvitationRequest(
   return data;
 }
 
-export async function createInvitation(payload: { email: string; days?: number; email_template?: InvitationEmailTemplate }) {
+export async function createInvitation(payload: { email: string; days?: number; email_template?: InvitationEmailTemplate; id_request?: number; plan_solicitado?: string }) {
   const { data } = await adminClient.post('/onboarding/invitations', payload);
   return data as {
     ok: boolean;
@@ -111,6 +111,7 @@ export async function createInvitation(payload: { email: string; days?: number; 
     email_template: InvitationEmailTemplate;
     email_sent: boolean;
     email_error: string | null;
+    plan_solicitado?: string | null;
   };
 }
 

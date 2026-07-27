@@ -211,11 +211,11 @@ export default function SaasPlansPage() {
               <div className="row g-3">
                 <div className="col-md-4">
                   <label className="form-label">Codigo</label>
-                  <input className="form-control" style={inputStyle} value={form.codigo} onChange={(e) => update('codigo', e.target.value.toUpperCase())} placeholder="PRO" />
+                  <input className="form-control" style={inputStyle} value={form.codigo} onChange={(e) => update('codigo', e.target.value.toUpperCase())} placeholder="" />
                 </div>
                 <div className="col-md-8">
                   <label className="form-label">Nombre</label>
-                  <input className="form-control" style={inputStyle} value={form.nombre} onChange={(e) => update('nombre', e.target.value)} placeholder="Bersano POS Pro" />
+                  <input className="form-control" style={inputStyle} value={form.nombre} onChange={(e) => update('nombre', e.target.value)} placeholder="Nombre del plan" />
                 </div>
                 <div className="col-12">
                   <label className="form-label">Descripcion</label>
@@ -224,11 +224,11 @@ export default function SaasPlansPage() {
 
                 <div className="col-md-6">
                   <label className="form-label">Precio mensual</label>
-                  <input className="form-control" style={inputStyle} inputMode="decimal" value={moneyInputValue(form.precio_mensual)} onChange={(e) => updateMoney('precio_mensual', e.target.value)} placeholder="80.000" />
+                  <input className="form-control" style={inputStyle} inputMode="decimal" value={moneyInputValue(form.precio_mensual)} onChange={(e) => updateMoney('precio_mensual', e.target.value)} placeholder="" />
                 </div>
                 <div className="col-md-6">
                   <label className="form-label">Precio anual</label>
-                  <input className="form-control" style={inputStyle} inputMode="decimal" value={moneyInputValue(form.precio_anual)} onChange={(e) => updateMoney('precio_anual', e.target.value)} placeholder="800.000" />
+                  <input className="form-control" style={inputStyle} inputMode="decimal" value={moneyInputValue(form.precio_anual)} onChange={(e) => updateMoney('precio_anual', e.target.value)} placeholder="" />
                 </div>
                 <div className="col-md-4">
                   <label className="form-label">Usuarios incluidos</label>

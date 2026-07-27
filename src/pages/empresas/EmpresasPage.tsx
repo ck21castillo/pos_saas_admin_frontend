@@ -88,7 +88,7 @@ export default function EmpresasPage() {
                     <label className="form-label small mb-1">Buscar</label>
                     <input
                         className="form-control"
-                        placeholder="Nombre, NIT, codigo, telefono o ciudad"
+                        placeholder="Nombre, correo, NIT, codigo, telefono o ciudad"
                         value={q}
                         onChange={(e) => setQ(e.target.value)}
                     />
@@ -164,6 +164,9 @@ export default function EmpresasPage() {
                                     </td>
                                     <td>
                                         <div>Tel: {valueOrDash(e.telefono)}</div>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            Email: {valueOrDash(e.usuarios_emails)}
+                                        </div>
                                         <div className="text-muted" style={{ fontSize: 12 }}>
                                             {valueOrDash(e.direccion)}
                                         </div>

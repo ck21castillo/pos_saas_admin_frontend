@@ -8,6 +8,7 @@ export type Empresa = {
   nit?: string | null;
   direccion?: string | null;
   telefono?: string | null;
+  usuarios_emails?: string | null;
   codigo_departamento?: string | null;
   departamento_nombre?: string | null;
   codigo_municipio?: string | null;
