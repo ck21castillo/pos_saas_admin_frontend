@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
 import {
@@ -11,6 +11,7 @@ import {
   type InvitationRow,
   updateInvitationRequest,
 } from '../../api/adminOnboarding';
+import { listarPlanesSaas, type SaasPlan } from '../../api/adminSaas';
 import '../../styles/onboarding.css';
 
 type ApiErrorLike = {
@@ -43,15 +44,48 @@ function fmtDate(s: string | null | undefined): string {
   return s.replace('T', ' ').replace('Z', '');
 }
 
-function planLabel(value: string | null | undefined): string {
+function normalizePlanCode(value: string | null | undefined): string {
+  const key = String(value ?? '').trim().toUpperCase().replaceAll('-', '_').replaceAll(' ', '_').replace(/_+/g, '_');
+  const aliases: Record<string, string> = {
+    NO_ESTOY_SEGURO: 'NO_SEGURO',
+    NOSEGURO: 'NO_SEGURO',
+    UNSURE: 'NO_SEGURO',
+    POS_ESENCIAL: 'ESENCIAL',
+    ANUAL_POS_ESENCIAL: 'ESENCIAL',
+    ANUAL_ESENCIAL: 'ESENCIAL',
+    POS_PRO: 'PRO',
+    ANUAL_POS_PRO: 'PRO',
+    ANUAL_PRO: 'PRO',
+    ANUAL_SOPORTE_ESENCIAL: 'SOPORTE_ESENCIAL',
+    ANUAL_SOPORTE_PRO: 'SOPORTE_PRO',
+  };
+  return aliases[key] ?? key;
+}
+
+function isUnsurePlan(value: string | null | undefined): boolean {
+  const key = normalizePlanCode(value);
+  return key === '' || key === 'NO_SEGURO';
+}
+
+function legacyPlanLabel(value: string | null | undefined): string {
+  const key = normalizePlanCode(value).toLowerCase();
   const labels: Record<string, string> = {
-    esencial: 'Esencial mensual',
-    pro: 'Pro mensual',
-    anual_esencial: 'Esencial anual',
-    anual_pro: 'Pro anual',
+    esencial: 'Bersano POS Esencial',
+    pro: 'Bersano POS Pro',
+    soporte_esencial: 'Bersano Servicio Tecnico Esencial',
+    soporte_pro: 'Bersano Servicio Tecnico Pro',
     no_seguro: 'No esta seguro',
   };
-  return labels[String(value ?? '').trim()] ?? '-';
+  return labels[key] ?? '-';
+}
+
+function escapeHtml(value: string | number | null | undefined): string {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function compactText(value: string | null | undefined, max = 140): string {
@@ -85,6 +119,8 @@ const OnboardingPage: React.FC = () => {
   const [reqTotal, setReqTotal] = useState(0);
   const [reqLimit, setReqLimit] = useState(25);
   const [reqOffset, setReqOffset] = useState(0);
+  const [plans, setPlans] = useState<SaasPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
 
   const [invEmail, setInvEmail] = useState('');
   const [invDays, setInvDays] = useState(7);
@@ -118,6 +154,44 @@ const OnboardingPage: React.FC = () => {
     () => reqRows.filter((r) => String(r.mensaje ?? '').trim() !== ''),
     [reqRows]
   );
+
+  const activePlans = useMemo(
+    () => plans
+      .filter((plan) => plan.activo)
+      .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0) || a.nombre.localeCompare(b.nombre)),
+    [plans]
+  );
+
+  const planNameByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    activePlans.forEach((plan) => map.set(normalizePlanCode(plan.codigo), plan.nombre));
+    return map;
+  }, [activePlans]);
+
+  const requestPlanLabel = useCallback((value: string | null | undefined): string => {
+    const code = normalizePlanCode(value);
+    if (isUnsurePlan(code)) return 'No esta seguro';
+    const legacy = legacyPlanLabel(code);
+    return planNameByCode.get(code) ?? (legacy !== '-' ? legacy : code || '-');
+  }, [planNameByCode]);
+
+  useEffect(() => {
+    let mounted = true;
+    setPlansLoading(true);
+    listarPlanesSaas(true)
+      .then((response) => {
+        if (mounted) setPlans(response.items ?? []);
+      })
+      .catch(() => {
+        if (mounted) setPlans([]);
+      })
+      .finally(() => {
+        if (mounted) setPlansLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const loadRequests = useCallback(async (nextOffset = reqOffset, nextLimit = reqLimit, nextEstado = reqEstado) => {
     setReqError(null);
@@ -199,11 +273,37 @@ const OnboardingPage: React.FC = () => {
   };
 
   const doGenerateFromRequest = async (r: InvitationRequestRow) => {
+    const currentPlan = normalizePlanCode(r.plan_solicitado);
+    const needsPlan = isUnsurePlan(currentPlan);
+
+    if (needsPlan && !plansLoading && activePlans.length === 0) {
+      await Swal.fire('Planes no disponibles', 'No hay planes activos para asociar a esta invitacion.', 'warning');
+      return;
+    }
+
+    const planOptions = activePlans
+      .map((plan) => `<option value="${escapeHtml(normalizePlanCode(plan.codigo))}">${escapeHtml(plan.nombre)} (${escapeHtml(plan.codigo)})</option>`)
+      .join('');
+
+    const planControl = needsPlan
+      ? `
+          <div style="background:#fff7e6;border:1px solid #f6c76a;border-radius:8px;padding:10px 12px;margin-bottom:12px;color:#5f4300;">
+            Esta solicitud llego sin plan definido. Confirma el plan antes de generar el codigo.
+          </div>
+          <label style="display:block;margin-bottom:6px;">Plan confirmado</label>
+          <select id="invite-plan" class="swal2-select" style="width:100%;margin:0 0 12px 0;">
+            <option value="">Seleccionar plan</option>
+            ${planOptions}
+          </select>
+        `
+      : `<p style="margin:0 0 12px 0;"><strong>Plan:</strong> ${escapeHtml(requestPlanLabel(r.plan_solicitado))}</p>`;
+
     const { isConfirmed, value } = await Swal.fire({
       title: 'Generar invitacion',
       html: `
         <div style="text-align:left">
-          <p><strong>${r.email}</strong></p>
+          <p><strong>${escapeHtml(r.email)}</strong></p>
+          ${planControl}
           <label style="display:block;margin-bottom:6px;">Dias de vigencia</label>
           <input id="invite-days" class="swal2-input" type="number" min="1" max="90" value="7" style="width:100%;margin:0 0 12px 0;" />
           <label style="display:block;margin-bottom:6px;">Plantilla</label>
@@ -220,20 +320,35 @@ const OnboardingPage: React.FC = () => {
       preConfirm: () => {
         const daysEl = document.getElementById('invite-days') as HTMLInputElement | null;
         const templateEl = document.getElementById('invite-template') as HTMLSelectElement | null;
+        const planEl = document.getElementById('invite-plan') as HTMLSelectElement | null;
+        const confirmedPlan = needsPlan ? normalizePlanCode(planEl?.value ?? '') : currentPlan;
+
+        if (needsPlan && isUnsurePlan(confirmedPlan)) {
+          Swal.showValidationMessage('Selecciona el plan que se asociara a esta invitacion.');
+          return false;
+        }
+
         return {
           days: clampInt(parseInt(daysEl?.value || '7', 10) || 7, 1, 90),
           template: parseEmailTemplate(templateEl?.value ?? 'cliente'),
+          plan_solicitado: confirmedPlan,
         };
       },
     });
     if (!isConfirmed || !value) return;
 
     try {
-      const out = await createInvitation({ email: r.email, days: value.days, email_template: value.template });
+      const out = await createInvitation({
+        email: r.email,
+        days: value.days,
+        email_template: value.template,
+        id_request: r.id_request,
+        plan_solicitado: value.plan_solicitado,
+      });
       showInvite(out);
       await updateInvitationRequest(r.id_request, {
         estado: 'APROBADA',
-        notas: 'Invitacion generada desde panel admin',
+        notas: `Invitacion generada desde panel admin. Plan: ${value.plan_solicitado}`,
       });
       await loadRequests(reqOffset, reqLimit, reqEstado);
       if (tab === 'invitations') await loadInvitations(invEmail.trim().toLowerCase(), invOffset, invLimit);
@@ -368,7 +483,14 @@ const OnboardingPage: React.FC = () => {
                           </td>
                           <td>{r.empresa_nombre || <span className="text-muted">-</span>}</td>
                           <td>{r.telefono || <span className="text-muted">-</span>}</td>
-                          <td>{planLabel(r.plan_solicitado)}</td>
+                          <td>
+                            {isUnsurePlan(r.plan_solicitado) ? (
+                              <div>
+                                <div className="fw-semibold text-warning">No esta seguro</div>
+                                <div className="text-muted" style={{ fontSize: 12 }}>Confirmar antes de generar</div>
+                              </div>
+                            ) : requestPlanLabel(r.plan_solicitado)}
+                          </td>
                           <td>{r.mensaje ? compactText(r.mensaje) : <span className="text-muted">Sin mensaje</span>}</td>
                           <td>
                             <span className={r.estado === 'PENDIENTE' ? 'badge bg-warning text-dark' : r.estado === 'APROBADA' ? 'badge bg-success' : 'badge bg-danger'}>
@@ -381,7 +503,7 @@ const OnboardingPage: React.FC = () => {
                               <button className="btn btn-sm btn-outline-danger" type="button" onClick={() => doReject(r)} disabled={r.estado === 'RECHAZADA'}>
                                 Rechazar
                               </button>
-                              <button className="btn btn-sm btn-primary" type="button" onClick={() => doGenerateFromRequest(r)}>
+                              <button className="btn btn-sm btn-primary" type="button" onClick={() => doGenerateFromRequest(r)} disabled={plansLoading && isUnsurePlan(r.plan_solicitado)}>
                                 Generar y enviar
                               </button>
                             </div>
@@ -563,3 +685,5 @@ const OnboardingPage: React.FC = () => {
 };
 
 export default OnboardingPage;
+
+

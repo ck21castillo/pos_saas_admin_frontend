@@ -33,12 +33,42 @@ const ESTADOS: SaasEstado[] = ['PRUEBA', 'ACTIVA', 'POR_VENCER', 'VENCIDA', 'SUS
 const CICLOS: SaasCiclo[] = ['MENSUAL', 'ANUAL'];
 
 function todayYmd(): string {
-  return new Date().toISOString().slice(0, 10);
+  return formatYmd(new Date());
 }
 
 function dateOnly(value?: string | null): string {
   if (!value) return '';
   return String(value).slice(0, 10);
+}
+
+function formatYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDaysYmd(value: string, days: number): string {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return '';
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return formatYmd(date);
+}
+
+function billingDatesForCycle(ciclo: SaasCiclo, start = todayYmd()) {
+  const isAnnual = String(ciclo).toUpperCase() === 'ANUAL';
+  const periodDays = isAnnual ? 365 : 30;
+  const graceDays = isAnnual ? 10 : 5;
+  const periodoFin = addDaysYmd(start, periodDays);
+  const proximoPago = addDaysYmd(periodoFin, 1);
+
+  return {
+    periodo_inicio: start,
+    periodo_fin: periodoFin,
+    proximo_pago_fecha: proximoPago,
+    gracia_hasta: addDaysYmd(proximoPago, graceDays),
+  };
 }
 
 function money(value?: number | string | null): string {
@@ -203,6 +233,14 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
 
   const updateField = <K extends keyof SubscriptionForm>(key: K, value: SubscriptionForm[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateCycleWithSuggestedDates = (ciclo: SaasCiclo) => {
+    setForm((prev) => ({
+      ...prev,
+      ciclo,
+      ...billingDatesForCycle(ciclo),
+    }));
   };
 
   const reflectSubscription = (
@@ -491,7 +529,7 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
                 <select
                   className="form-select"
                   value={form.ciclo}
-                  onChange={(e) => updateField('ciclo', e.target.value as SaasCiclo)}
+                  onChange={(e) => updateCycleWithSuggestedDates(e.target.value as SaasCiclo)}
                 >
                   {CICLOS.map((ciclo) => <option key={ciclo} value={ciclo}>{ciclo}</option>)}
                 </select>
