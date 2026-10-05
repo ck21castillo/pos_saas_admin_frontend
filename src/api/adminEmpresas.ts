@@ -1,5 +1,6 @@
 // src/api/adminEmpresas.ts
 import adminClient from './adminClient';
+import type { SyncResult } from './adminSaas';
 
 export type Empresa = {
   id_empresa: number;
@@ -183,7 +184,7 @@ export async function getEmpresaModulos(idEmpresa: number) {
 
 export async function saveEmpresaModulos(idEmpresa: number, items: Array<{ id_modulo: number; enabled: boolean }>) {
   const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/modulos`, { items });
-  return data as { ok: boolean; id_empresa: number; saved: number };
+  return data as { ok: boolean; id_empresa: number; saved: number; sync?: SyncResult };
 }
 
 export type EmpresaPermisoItem = { id_permiso: number; codigo: string; descripcion: string; enabled: boolean };
@@ -195,7 +196,7 @@ export async function getEmpresaPermisos(idEmpresa: number) {
 
 export async function saveEmpresaPermisos(idEmpresa: number, items: Array<{ id_permiso: number; enabled: boolean }>) {
   const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/permisos`, { items });
-  return data as { ok: boolean; id_empresa: number; saved: number };
+  return data as { ok: boolean; id_empresa: number; saved: number; sync?: SyncResult };
 }
 
 export type EmpresaUsuarioItem = {

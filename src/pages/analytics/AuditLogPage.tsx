@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageLayout from '../../layout/PageLayout';
 import { listAuditLog, type AuditLogItem } from '../../api/adminAudit';
 import '../../styles/audit-log.css';
@@ -34,87 +35,154 @@ function actionLabel(action?: string | null) {
   return text.replaceAll('_', ' ');
 }
 
+type AuditLoadReason = 'initial' | 'filters' | 'search' | 'table';
+
+function numberParam(value: string | null, fallback: number) {
+  const parsed = Number(value ?? '');
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export default function AuditLogPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [actions, setActions] = useState<string[]>([]);
   const [selected, setSelected] = useState<AuditLogItem | null>(null);
-  const [q, setQ] = useState('');
-  const [action, setAction] = useState('');
-  const [idEmpresa, setIdEmpresa] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const [limit, setLimit] = useState(25);
-  const [offset, setOffset] = useState(0);
+  const [q, setQ] = useState(searchParams.get('q') ?? '');
+  const [debouncedQ, setDebouncedQ] = useState(searchParams.get('q') ?? '');
+  const [action, setAction] = useState(searchParams.get('action') ?? '');
+  const [idEmpresa, setIdEmpresa] = useState(searchParams.get('id_empresa') ?? '');
+  const [from, setFrom] = useState(searchParams.get('from') ?? '');
+  const [to, setTo] = useState(searchParams.get('to') ?? '');
+  const [limit, setLimit] = useState(numberParam(searchParams.get('limit'), 25));
+  const [offset, setOffset] = useState(Math.max(0, numberParam(searchParams.get('offset'), 0)));
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [error, setError] = useState('');
+  const firstSearchRun = useRef(true);
+  const mountedRef = useRef(false);
 
   const page = useMemo(() => Math.floor(offset / Math.max(1, limit)) + 1, [offset, limit]);
   const pages = useMemo(() => Math.max(1, Math.ceil(total / Math.max(1, limit))), [total, limit]);
   const fromRow = total === 0 ? 0 : offset + 1;
   const toRow = Math.min(offset + items.length, total);
 
-  const load = async (nextOffset = offset, nextLimit = limit) => {
-    setLoading(true);
+  const syncUrl = useCallback((next: {
+    q: string;
+    action: string;
+    idEmpresa: string;
+    from: string;
+    to: string;
+    limit: number;
+    offset: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (next.q.trim()) params.set('q', next.q.trim());
+    if (next.action) params.set('action', next.action);
+    if (next.idEmpresa.trim()) params.set('id_empresa', next.idEmpresa.trim());
+    if (next.from) params.set('from', next.from);
+    if (next.to) params.set('to', next.to);
+    if (next.limit !== 25) params.set('limit', String(next.limit));
+    if (next.offset > 0) params.set('offset', String(next.offset));
+    setSearchParams(params, { replace: true });
+  }, [setSearchParams]);
+
+  const load = useCallback(async (
+    nextOffset = offset,
+    nextLimit = limit,
+    reason: AuditLoadReason = 'table',
+    nextQ = debouncedQ,
+    nextAction = action,
+    nextIdEmpresa = idEmpresa,
+    nextFrom = from,
+    nextTo = to
+  ) => {
+    setTableLoading(true);
+    if (reason === 'filters' || reason === 'initial') setFilterLoading(true);
+    if (reason === 'search') setSearchLoading(true);
     setError('');
     try {
       const out = await listAuditLog({
-        q: q.trim() || undefined,
-        action: action || undefined,
-        id_empresa: idEmpresa.trim() || undefined,
-        from: from || undefined,
-        to: to || undefined,
+        q: nextQ.trim() || undefined,
+        action: nextAction || undefined,
+        id_empresa: nextIdEmpresa.trim() || undefined,
+        from: nextFrom || undefined,
+        to: nextTo || undefined,
         limit: nextLimit,
         offset: nextOffset,
       });
+      if (!mountedRef.current) return;
       setItems(out.items ?? []);
       setActions(out.actions ?? []);
       setTotal(Number(out.total ?? 0));
       setLimit(Number(out.limit ?? nextLimit));
       setOffset(Number(out.offset ?? nextOffset));
+      if (reason !== 'initial') {
+        syncUrl({
+          q: nextQ,
+          action: nextAction,
+          idEmpresa: nextIdEmpresa,
+          from: nextFrom,
+          to: nextTo,
+          limit: Number(out.limit ?? nextLimit),
+          offset: Number(out.offset ?? nextOffset),
+        });
+      }
       if ((out.items ?? []).length === 0) {
         setSelected(null);
       } else if (!selected || !(out.items ?? []).some((item) => item.id_audit === selected.id_audit)) {
         setSelected(out.items[0]);
       }
     } catch {
+      if (!mountedRef.current) return;
       setError('No se pudo cargar la auditoria.');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setTableLoading(false);
+        setFilterLoading(false);
+        setSearchLoading(false);
+      }
     }
-  };
+  }, [action, debouncedQ, from, idEmpresa, limit, offset, selected, syncUrl, to]);
 
   useEffect(() => {
-    void load(0, limit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
+
+  useEffect(() => {
+    void load(offset, limit, 'initial');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQ(q), 450);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
+  useEffect(() => {
+    if (firstSearchRun.current) {
+      firstSearchRun.current = false;
+      return;
+    }
+    void load(0, limit, 'search', debouncedQ);
+  }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void load(0, limit);
+    void load(0, limit, 'filters', debouncedQ, action, idEmpresa, from, to);
   };
 
   const clear = async () => {
     setQ('');
+    setDebouncedQ('');
     setAction('');
     setIdEmpresa('');
     setFrom('');
     setTo('');
-    setLoading(true);
-    setError('');
-    try {
-      const out = await listAuditLog({ limit, offset: 0 });
-      setItems(out.items ?? []);
-      setActions(out.actions ?? []);
-      setTotal(Number(out.total ?? 0));
-      setLimit(Number(out.limit ?? limit));
-      setOffset(Number(out.offset ?? 0));
-      setSelected((out.items ?? [])[0] ?? null);
-    } catch {
-      setError('No se pudo cargar la auditoria.');
-    } finally {
-      setLoading(false);
-    }
+    void load(0, limit, 'filters', '', '', '', '', '');
   };
 
   return (
@@ -128,6 +196,7 @@ export default function AuditLogPage() {
             value={q}
             onChange={(event) => setQ(event.target.value)}
           />
+          {searchLoading ? <div className="small text-muted mt-1">Buscando...</div> : null}
         </div>
         <div className="audit-action">
           <label className="form-label small mb-1">Accion</label>
@@ -135,6 +204,7 @@ export default function AuditLogPage() {
             <option value="">Todas</option>
             {actions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
+          {filterLoading ? <div className="small text-muted mt-1">Actualizando filtros...</div> : null}
         </div>
         <div className="audit-company">
           <label className="form-label small mb-1">Empresa</label>
@@ -155,13 +225,13 @@ export default function AuditLogPage() {
         </div>
         <div className="audit-limit">
           <label className="form-label small mb-1">Mostrar</label>
-          <select className="form-select form-select-sm" value={limit} onChange={(event) => void load(0, Number(event.target.value))}>
+          <select className="form-select form-select-sm" value={limit} onChange={(event) => void load(0, Number(event.target.value), 'table')}>
             <option value={25}>25</option>
             <option value={50}>50</option>
           </select>
         </div>
-        <button className="btn btn-primary btn-sm" type="submit" disabled={loading}>Filtrar</button>
-        <button className="btn btn-outline-secondary btn-sm" type="button" disabled={loading} onClick={clear}>Limpiar</button>
+        <button className="btn btn-primary btn-sm" type="submit" disabled={filterLoading}>Filtrar</button>
+        <button className="btn btn-outline-secondary btn-sm" type="button" disabled={filterLoading} onClick={clear}>Limpiar</button>
       </form>
 
       {error ? <div className="alert alert-danger py-2">{error}</div> : null}
@@ -181,12 +251,12 @@ export default function AuditLogPage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
+                {tableLoading ? (
                   <tr><td colSpan={6} className="py-3 text-muted">Cargando...</td></tr>
                 ) : items.length === 0 ? (
                   <tr><td colSpan={6} className="py-3 text-muted">Sin registros</td></tr>
                 ) : items.map((item, index) => (
-                  <tr key={`${item.id_audit ?? index}-${item.created_at ?? ''}`} className={selected === item ? 'table-active' : ''}>
+                  <tr key={`${item.id_audit ?? index}-${item.created_at ?? ''}`} className={selected?.id_audit === item.id_audit ? 'table-active' : ''}>
                     <td>{dateText(item.created_at)}</td>
                     <td><span className="audit-action-pill">{actionLabel(item.action)}</span></td>
                     <td>{compact(item.actor_email)}</td>
@@ -206,9 +276,9 @@ export default function AuditLogPage() {
           <div className="d-flex align-items-center justify-content-between gap-2 mt-3 flex-wrap">
             <span className="small text-muted">Mostrando {fromRow}-{toRow} de {total}</span>
             <div className="d-flex align-items-center gap-2">
-              <button className="btn btn-outline-secondary btn-sm" type="button" disabled={offset <= 0 || loading} onClick={() => void load(Math.max(0, offset - limit), limit)}>Anterior</button>
+              <button className="btn btn-outline-secondary btn-sm" type="button" disabled={offset <= 0 || tableLoading} onClick={() => void load(Math.max(0, offset - limit), limit, 'table')}>Anterior</button>
               <span className="small text-muted">Pagina {page} de {pages}</span>
-              <button className="btn btn-outline-secondary btn-sm" type="button" disabled={offset + limit >= total || loading} onClick={() => void load(offset + limit, limit)}>Siguiente</button>
+              <button className="btn btn-outline-secondary btn-sm" type="button" disabled={offset + limit >= total || tableLoading} onClick={() => void load(offset + limit, limit, 'table')}>Siguiente</button>
             </div>
           </div>
         </section>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
@@ -22,12 +22,21 @@ import {
     type InventarioImportPreview,
 } from '../../api/adminEmpresas';
 import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
+import { isSyncPending } from '../../api/adminSaas';
 import SaasSubscriptionPanel from './SaasSubscriptionPanel';
 
 type ModRow = EmpresaModuloItem;
 type PermRow = EmpresaPermisoItem;
 type UserRow = EmpresaUsuarioItem;
 type CapRow = EmpresaCapacidadDetalle;
+
+const SAAS_MANAGED_CAPABILITY_CODES = new Set([
+    'SOPORTE_TECNICO',
+    'PRECONTABILIDAD',
+    'EXPORTACION_CONTABLE',
+    'FACTURACION_ELECTRONICA',
+    'NOTAS_FISCALES',
+]);
 
 const BUSINESS_TYPE_OPTIONS: Array<{ value: TipoNegocio; label: string; help: string }> = [
     {
@@ -58,6 +67,7 @@ type ModSpec = {
     label: string;
     icon?: string;
     perms: string[];
+    capabilityCode?: string;
 };
 
 const MODULE_SPECS: ModSpec[] = [
@@ -153,16 +163,18 @@ const MODULE_SPECS: ModSpec[] = [
         ],
     },
     {
-        key: 'reportes-contables',
-        label: 'Reportes contables',
-        icon: 'analytics',
-        perms: ['CONTABLES__VER', 'CONTABLES__EXPORTAR'],
+        key: 'precontabilidad',
+        label: 'Precontabilidad',
+        icon: 'account_balance',
+        perms: ['PRECONTABILIDAD__VER', 'PRECONTABILIDAD__CONFIGURAR'],
+        capabilityCode: 'PRECONTABILIDAD',
     },
     {
         key: 'soporte',
         label: 'Soporte',
         icon: 'support_agent',
         perms: ['SOPORTE__VER', 'SOPORTE__CREAR', 'SOPORTE__EDITAR', 'SOPORTE__ENTREGAR', 'SOPORTE__EXPORTAR', 'SOPORTE__ENVIAR', 'WHATSAPP__SOPORTE_ENVIAR_COMPROBANTE'],
+        capabilityCode: 'SOPORTE_TECNICO',
     },
 ];
 
@@ -177,6 +189,7 @@ const UI_HIDDEN_PERMS = new Set<string>([
     // no cableados aún
     'POS__OPERAR', 'POS__COMPROBANTE_EMAIL', 'POS__FACTURA_ELECTRONICA',
     'REPORTES__VER', 'REPORTE__VER',
+    'CONTABLES__VER', 'CONTABLES__EXPORTAR',
     'VENTA__DETALLE',
     'INVENTARIO__MOV_EXPORTAR', 'INVENTARIO__LOTE_EDITAR',
 
@@ -187,8 +200,66 @@ const UI_HIDDEN_PERMS = new Set<string>([
     'RBAC__USER_PERMS_VIEW', 'RBAC__USER_PERMS_EDIT',
 ]);
 
+const RETIRED_MODULE_ROUTES = new Set(['/reportes-contables', 'reportes-contables']);
+const SAAS_MODULE_GATES: Record<string, { capabilityCode: string; label: string }> = {
+    soporte: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    precontabilidad: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
+};
+const SAAS_PERMISSION_GATES: Record<string, { capabilityCode: string; label: string }> = {
+    SOPORTE__VER: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    SOPORTE__CREAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    SOPORTE__EDITAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    SOPORTE__ENTREGAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    SOPORTE__EXPORTAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    SOPORTE__ENVIAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    WHATSAPP__SOPORTE_ENVIAR_COMPROBANTE: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
+    PRECONTABILIDAD__VER: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
+    PRECONTABILIDAD__CONFIGURAR: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
+};
+
 function normCode(x: unknown): string {
     return String(x ?? '').trim().toUpperCase();
+}
+
+function normSearch(x: unknown): string {
+    return String(x ?? '').trim().toLowerCase();
+}
+
+function isRetiredReportsModule(module: ModRow): boolean {
+    const route = normSearch(module.ruta).replace(/^#/, '');
+    const name = normSearch(module.nombre);
+    return RETIRED_MODULE_ROUTES.has(route) || name === 'reportes contables';
+}
+
+function moduleGateKey(module: ModRow): string | null {
+    const route = normSearch(module.ruta);
+    const name = normSearch(module.nombre);
+    if (route.includes('soporte') || name.includes('soporte')) return 'soporte';
+    if (route.includes('precontabilidad') || name.includes('precontabilidad')) return 'precontabilidad';
+    return null;
+}
+
+function moduleSpecForModule(module: ModRow): ModSpec | null {
+    const route = normSearch(module.ruta);
+    const name = normSearch(module.nombre);
+    return MODULE_SPECS.find((spec) => {
+        const key = normSearch(spec.key);
+        const label = normSearch(spec.label);
+        return route.includes(key) || name === label || name.includes(label);
+    }) ?? null;
+}
+
+function permissionKind(code: string): { label: string; className: string } {
+    if (code === 'PRECONTABILIDAD__CONFIGURAR') {
+        return { label: 'Configuracion', className: 'text-bg-warning' };
+    }
+    if (code === 'PRECONTABILIDAD__VER') {
+        return { label: 'Consulta', className: 'text-bg-info' };
+    }
+    if (code.endsWith('__CONFIGURAR') || code.endsWith('__EDITAR') || code.endsWith('__CREAR')) {
+        return { label: 'Gestion', className: 'text-bg-warning' };
+    }
+    return { label: 'Consulta', className: 'text-bg-light border text-dark' };
 }
 
 function dateText(value?: string | null): string {
@@ -209,11 +280,25 @@ function tenantHealthLabel(status?: string | null): string {
     if (status === 'ERROR') return 'Error';
     return 'Sin verificar';
 }
+
+function responseData(error: unknown): { error?: unknown; message?: unknown } | null {
+    if (typeof error !== 'object' || error === null || !('response' in error)) return null;
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    return typeof data === 'object' && data !== null ? data as { error?: unknown; message?: unknown } : null;
+}
+
+function isSaasCapabilityValidation(error: unknown): boolean {
+    const data = responseData(error);
+    const message = String(data?.message ?? data?.error ?? '');
+    return message.includes('CAPACIDAD_SAAS_REQUERIDA');
+}
+
 export default function EmpresaDetailPage() {
     const { id } = useParams();
     const idEmpresa = Number(id || 0);
 
-    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'permisos' | 'usuarios' | 'suscripcion'>('configuracion');
+    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'usuarios' | 'suscripcion'>('configuracion');
 
     const [mods, setMods] = useState<ModRow[]>([]);
     const [perms, setPerms] = useState<PermRow[]>([]);
@@ -228,14 +313,14 @@ export default function EmpresaDetailPage() {
     const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>('GENERAL');
     const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
+    const [permQ, setPermQ] = useState('');
     const [loading, setLoading] = useState(false);
+    const [operationalNotice, setOperationalNotice] = useState<string | null>(null);
 
     // NUEVO: módulo seleccionado para la vista permisos
-    const [selectedModuleKey, setSelectedModuleKey] = useState<string>(MODULE_SPECS[0]?.key ?? 'pos');
+    const [selectedModuleKey, setSelectedModuleKey] = useState<string | null>(null);
 
     // opcional: ver permisos que no están mapeados (por defecto: NO)
-    const [showUnmapped, setShowUnmapped] = useState(false);
-
     const load = async () => {
         setLoading(true);
         try {
@@ -269,6 +354,41 @@ export default function EmpresaDetailPage() {
         return map;
     }, [perms]);
 
+    const effectiveCapabilities = useMemo(() => {
+        const map = new Map<string, boolean>();
+        for (const [code, enabled] of Object.entries(businessConfig?.capacidades ?? {})) {
+            map.set(normCode(code), Boolean(enabled));
+        }
+        for (const cap of businessConfig?.capacidades_detalle ?? []) {
+            const code = normCode(cap.codigo_capacidad);
+            if (!map.has(code)) {
+                map.set(code, Boolean(cap.enabled));
+            }
+        }
+        return map;
+    }, [businessConfig]);
+
+    const isCapabilityEffective = useCallback((code?: string | null): boolean => {
+        if (!code) return true;
+        return effectiveCapabilities.get(normCode(code)) === true;
+    }, [effectiveCapabilities]);
+
+    const isModuleRestrictedByCapability = useCallback((module: ModRow): boolean => {
+        const gate = moduleGateKey(module);
+        if (!gate) return false;
+        const rule = SAAS_MODULE_GATES[gate];
+        return rule ? !isCapabilityEffective(rule.capabilityCode) : false;
+    }, [isCapabilityEffective]);
+
+    const isPermissionRestrictedByCapability = useCallback((code: string): boolean => {
+        const rule = SAAS_PERMISSION_GATES[normCode(code)];
+        return rule ? !isCapabilityEffective(rule.capabilityCode) : false;
+    }, [isCapabilityEffective]);
+
+    const permissionEnabledForDisplay = useCallback((code: string): boolean => {
+        return Boolean(permsByCode.get(normCode(code))?.enabled);
+    }, [permsByCode]);
+
     const usedPermSet = useMemo(() => {
         const all = MODULE_SPECS.flatMap(m => m.perms).map(normCode);
         const set = new Set(all);
@@ -279,8 +399,9 @@ export default function EmpresaDetailPage() {
 
     const filteredMods = useMemo(() => {
         const s = q.trim().toLowerCase();
-        if (!s) return mods;
-        return mods.filter(m =>
+        const visible = mods.filter((m) => !isRetiredReportsModule(m));
+        if (!s) return visible;
+        return visible.filter(m =>
             String(m.nombre ?? '').toLowerCase().includes(s) ||
             String(m.ruta ?? '').toLowerCase().includes(s)
         );
@@ -299,7 +420,9 @@ export default function EmpresaDetailPage() {
     }, [users, q]);
 
     const filteredCapabilities = useMemo(() => {
-        const rows = businessConfig?.capacidades_detalle ?? [];
+        const rows = (businessConfig?.capacidades_detalle ?? []).filter(
+            (cap) => !SAAS_MANAGED_CAPABILITY_CODES.has(normCode(cap.codigo_capacidad))
+        );
         const s = q.trim().toLowerCase();
         if (!s) return rows;
         return rows.filter((cap: CapRow) =>
@@ -310,15 +433,59 @@ export default function EmpresaDetailPage() {
     }, [businessConfig, q]);
 
     const saveMods = async () => {
-        const items = mods.map(m => ({ id_modulo: m.id_modulo, enabled: !!m.enabled }));
-        const r = await saveEmpresaModulos(idEmpresa, items);
-        await Swal.fire({ icon: 'success', title: 'Guardado', text: `Módulos guardados (${r.saved})` });
+        const items = mods.map(m => ({
+            id_modulo: m.id_modulo,
+            enabled: !isRetiredReportsModule(m) && !!m.enabled,
+        }));
+        try {
+            const r = await saveEmpresaModulos(idEmpresa, items);
+            await load();
+            if (isSyncPending(r.sync)) {
+                setOperationalNotice('Los cambios locales fueron guardados y el tenant sera sincronizado automaticamente mediante reintento.');
+                return;
+            }
+            setOperationalNotice(null);
+            await Swal.fire({ icon: 'success', title: 'Guardado', text: `Modulos guardados (${r.saved})` });
+        } catch (error: unknown) {
+            if (isSaasCapabilityValidation(error)) {
+                await Swal.fire({
+                    icon: 'warning',
+                    title: 'Capacidad SaaS requerida',
+                    text: 'Este recurso requiere una capacidad que no esta incluida en el plan o la suscripcion de la empresa.',
+                    confirmButtonText: 'Entendido',
+                });
+                return;
+            }
+            await Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudieron guardar los modulos.' });
+        }
     };
 
     const savePerms = async () => {
-        const items = perms.map(p => ({ id_permiso: p.id_permiso, enabled: !!p.enabled }));
-        const r = await saveEmpresaPermisos(idEmpresa, items);
-        await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
+        const items = perms.map(p => ({
+            id_permiso: p.id_permiso,
+            enabled: !UI_HIDDEN_PERMS.has(normCode(p.codigo)) && !!p.enabled,
+        }));
+        try {
+            const r = await saveEmpresaPermisos(idEmpresa, items);
+            await load();
+            if (isSyncPending(r.sync)) {
+                setOperationalNotice('Los cambios locales fueron guardados y el tenant sera sincronizado automaticamente mediante reintento.');
+                return;
+            }
+            setOperationalNotice(null);
+            await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
+        } catch (error: unknown) {
+            if (isSaasCapabilityValidation(error)) {
+                await Swal.fire({
+                    icon: 'warning',
+                    title: 'Capacidad SaaS requerida',
+                    text: 'Este recurso requiere una capacidad que no esta incluida en el plan o la suscripcion de la empresa.',
+                    confirmButtonText: 'Entendido',
+                });
+                return;
+            }
+            await Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudieron guardar los permisos.' });
+        }
     };
 
 
@@ -333,7 +500,7 @@ export default function EmpresaDetailPage() {
         });
 
         try {
-            const out = await getTenantHealth(idEmpresa, true);
+            const out = await getTenantHealth(idEmpresa, false);
             setTenantHealth(out.item);
             const icon = out.item.health_status === 'OK' ? 'success' : out.item.health_status === 'WARNING' ? 'warning' : 'error';
             await Swal.fire({
@@ -349,13 +516,17 @@ export default function EmpresaDetailPage() {
         }
     };
     const saveBusinessConfig = async () => {
+        const operationalCapabilities = Object.fromEntries(
+            Object.entries(capabilityValues).filter(([code]) => !SAAS_MANAGED_CAPABILITY_CODES.has(normCode(code)))
+        );
         const r = await saveEmpresaConfiguracionNegocio(idEmpresa, {
             tipo_negocio: tipoNegocio,
-            capacidades: capabilityValues,
+            capacidades: operationalCapabilities,
         });
         setBusinessConfig(r);
         setTipoNegocio(r.tipo_negocio ?? 'GENERAL');
         setCapabilityValues(r.capacidades ?? {});
+        await load();
         await Swal.fire({ icon: 'success', title: 'Guardado', text: 'Configuración de negocio actualizada' });
     };
 
@@ -486,11 +657,16 @@ export default function EmpresaDetailPage() {
      *  ===========================
      */
     const selectedModule = useMemo(() => {
-        return MODULE_SPECS.find(m => m.key === selectedModuleKey) ?? MODULE_SPECS[0];
+        if (!selectedModuleKey) return null;
+        return MODULE_SPECS.find(m => m.key === selectedModuleKey) ?? null;
     }, [selectedModuleKey]);
 
+    const selectedModuleRestricted = Boolean(
+        selectedModule?.capabilityCode && !isCapabilityEffective(selectedModule.capabilityCode)
+    );
+
     const modulePermRows = useMemo(() => {
-        const s = q.trim().toLowerCase();
+        const s = permQ.trim().toLowerCase();
         const codes = (selectedModule?.perms ?? [])
             .map(normCode)
             .filter(c => usedPermSet.has(c)); // solo usados
@@ -508,7 +684,7 @@ export default function EmpresaDetailPage() {
             });
 
         return rows;
-    }, [selectedModule, q, permsByCode, usedPermSet]);
+    }, [selectedModule, permQ, permsByCode, usedPermSet]);
 
     const moduleMissingInDb = useMemo(() => {
         return modulePermRows.filter(x => !x.row).map(x => x.code);
@@ -517,36 +693,12 @@ export default function EmpresaDetailPage() {
     const moduleStats = useMemo(() => {
         const codes = (selectedModule?.perms ?? []).map(normCode).filter(c => usedPermSet.has(c));
         const total = codes.length;
-        const enabled = codes.filter(c => permsByCode.get(c)?.enabled).length;
+        const enabled = codes.filter(c => permissionEnabledForDisplay(c)).length;
         return { total, enabled };
-    }, [selectedModule, usedPermSet, permsByCode]);
+    }, [selectedModule, usedPermSet, permissionEnabledForDisplay]);
 
     /** módulos list (con contadores) */
-    const moduleListWithCounts = useMemo(() => {
-        return MODULE_SPECS.map(ms => {
-            const codes = ms.perms.map(normCode).filter(c => usedPermSet.has(c));
-            const total = codes.length;
-            const enabled = codes.filter(c => permsByCode.get(c)?.enabled).length;
-            return { ...ms, total, enabled };
-        });
-    }, [permsByCode, usedPermSet]);
-
     /** permisos no mapeados (opcional, para auditoría) */
-    const unmappedPermRows = useMemo(() => {
-        if (!showUnmapped) return [];
-        const s = q.trim().toLowerCase();
-        return perms
-            .filter(p => {
-                const code = normCode(p.codigo);
-                // no mapeados o ocultos
-                return !usedPermSet.has(code);
-            })
-            .filter(p => {
-                if (!s) return true;
-                return normCode(p.codigo).toLowerCase().includes(s) || String(p.descripcion ?? '').toLowerCase().includes(s);
-            });
-    }, [perms, usedPermSet, showUnmapped, q]);
-
     const selectedBusinessTypeOption = useMemo(() => {
         return BUSINESS_TYPE_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? BUSINESS_TYPE_OPTIONS[0];
     }, [tipoNegocio]);
@@ -573,12 +725,6 @@ export default function EmpresaDetailPage() {
                         Módulos
                     </button>
                     <button
-                        className={`btn btn-sm ${tab === 'permisos' ? 'btn-primary' : 'btn-outline-primary'}`}
-                        onClick={() => setTab('permisos')}
-                    >
-                        Permisos
-                    </button>
-                    <button
                         className={`btn btn-sm ${tab === 'usuarios' ? 'btn-primary' : 'btn-outline-primary'}`}
                         onClick={() => setTab('usuarios')}
                     >
@@ -599,8 +745,6 @@ export default function EmpresaDetailPage() {
                             ? 'Buscar capacidades...'
                             : tab === 'modulos'
                                 ? 'Filtrar módulos...'
-                                : tab === 'permisos'
-                                    ? 'Buscar en permisos del módulo...'
                                     : 'Buscar usuarios...'
                     }
                     value={q}
@@ -609,21 +753,6 @@ export default function EmpresaDetailPage() {
                 />
 
                 <div className="ms-auto d-flex gap-2 align-items-center">
-                    {tab === 'permisos' && (
-                        <div className="form-check form-switch">
-                            <input
-                                className="form-check-input"
-                                type="checkbox"
-                                checked={showUnmapped}
-                                onChange={(e) => setShowUnmapped(e.target.checked)}
-                                id="showUnmapped"
-                            />
-                            <label className="form-check-label" htmlFor="showUnmapped" style={{ fontSize: 12 }}>
-                                Mostrar no mapeados
-                            </label>
-                        </div>
-                    )}
-
                     {tab === 'configuracion' ? (
                         <button className="btn btn-primary btn-sm" onClick={saveBusinessConfig} disabled={loading || !businessConfig}>
                             Guardar configuración
@@ -632,18 +761,20 @@ export default function EmpresaDetailPage() {
                         <button className="btn btn-primary btn-sm" onClick={saveMods} disabled={loading}>
                             Guardar módulos
                         </button>
-                    ) : tab === 'permisos' ? (
-                        <button className="btn btn-primary btn-sm" onClick={savePerms} disabled={loading}>
-                            Guardar permisos
-                        </button>
                     ) : null}
                 </div>
             </div>
 
+            {operationalNotice && (
+                <div className="alert alert-info py-2 mb-3 small">
+                    {operationalNotice}
+                </div>
+            )}
+
             {loading ? (
                 <div className="py-4">Cargando...</div>
             ) : tab === 'suscripcion' ? (
-                <SaasSubscriptionPanel idEmpresa={idEmpresa} />
+                <SaasSubscriptionPanel idEmpresa={idEmpresa} onSynced={load} />
             ) : tab === 'configuracion' ? (
                 <div className="row g-3">
                     <div className="col-12 col-lg-5">
@@ -748,6 +879,75 @@ export default function EmpresaDetailPage() {
                             </div>
                         </div>
 
+                    </div>
+
+                    <div className="col-12 col-lg-7">
+                        <div className="card">
+                            <div className="card-body">
+                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+                                    <div>
+                                        <div className="fw-bold">Capacidades</div>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            Activa o desactiva funciones especiales para esta empresa.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="table-responsive mt-3">
+                                    <table className="table table-sm align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Capacidad</th>
+                                                <th>Descripción</th>
+                                                <th style={{ width: 110 }}>Habilitar</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredCapabilities.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={3} className="text-muted py-3">
+                                                        No hay capacidades para mostrar.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredCapabilities.map((cap) => {
+                                                    const code = normCode(cap.codigo_capacidad);
+                                                    const enabled = capabilityValues[code] ?? !!cap.enabled;
+                                                    return (
+                                                        <tr key={code}>
+                                                            <td>
+                                                                <div style={{ fontWeight: 700 }}>{cap.nombre}</div>
+                                                                <div className="text-muted" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
+                                                                    {code}
+                                                                </div>
+                                                            </td>
+                                                            <td style={{ fontSize: 12, opacity: 0.85 }}>
+                                                                {cap.descripcion || '-'}
+                                                            </td>
+                                                            <td>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    className="form-check-input"
+                                                                    checked={enabled}
+                                                                    onChange={(e) => {
+                                                                        const v = e.target.checked;
+                                                                        setCapabilityValues((prev) => ({ ...prev, [code]: v }));
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div className="text-muted" style={{ fontSize: 12 }}>
+                                    Productos por peso queda marcada como reservada hasta terminar el flujo completo de kg.
+                                </div>
+                            </div>
+                        </div>
                         <div className="card mt-3">
                             <div className="card-body">
                                 <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
@@ -891,78 +1091,6 @@ export default function EmpresaDetailPage() {
                             </div>
                         </div>
                     </div>
-
-                    <div className="col-12 col-lg-7">
-                        <div className="card">
-                            <div className="card-body">
-                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
-                                    <div>
-                                        <div className="fw-bold">Capacidades</div>
-                                        <div className="text-muted" style={{ fontSize: 12 }}>
-                                            Activa o desactiva funciones especiales para esta empresa.
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="table-responsive mt-3">
-                                    <table className="table table-sm align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>Capacidad</th>
-                                                <th>Descripción</th>
-                                                <th style={{ width: 110 }}>Habilitar</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {filteredCapabilities.length === 0 ? (
-                                                <tr>
-                                                    <td colSpan={3} className="text-muted py-3">
-                                                        No hay capacidades para mostrar.
-                                                    </td>
-                                                </tr>
-                                            ) : (
-                                                filteredCapabilities.map((cap) => {
-                                                    const code = normCode(cap.codigo_capacidad);
-                                                    const enabled = capabilityValues[code] ?? !!cap.enabled;
-                                                    return (
-                                                        <tr key={code}>
-                                                            <td>
-                                                                <div style={{ fontWeight: 700 }}>{cap.nombre}</div>
-                                                                <div className="text-muted" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
-                                                                    {code}
-                                                                </div>
-                                                                {code === 'PRODUCTOS_PESO' && (
-                                                                    <span className="badge text-bg-warning mt-1">Reservada</span>
-                                                                )}
-                                                            </td>
-                                                            <td style={{ fontSize: 12, opacity: 0.85 }}>
-                                                                {cap.descripcion || '-'}
-                                                            </td>
-                                                            <td>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    className="form-check-input"
-                                                                    checked={enabled}
-                                                                    onChange={(e) => {
-                                                                        const v = e.target.checked;
-                                                                        setCapabilityValues((prev) => ({ ...prev, [code]: v }));
-                                                                    }}
-                                                                />
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                <div className="text-muted" style={{ fontSize: 12 }}>
-                                    Productos por peso queda marcada como reservada hasta terminar el flujo completo de kg.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             ) : tab === 'modulos' ? (
                 <div className="table-responsive">
@@ -973,193 +1101,57 @@ export default function EmpresaDetailPage() {
                                 <th>Módulo</th>
                                 <th>Ruta</th>
                                 <th style={{ width: 110 }}>Habilitar</th>
+                                <th style={{ width: 140 }}>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredMods.map(m => (
-                                <tr key={m.id_modulo}>
-                                    <td>{m.id_modulo}</td>
-                                    <td style={{ fontWeight: 600 }}>{m.nombre}</td>
-                                    <td style={{ fontSize: 12, opacity: 0.8 }}>{m.ruta || '-'}</td>
-                                    <td>
-                                        <input
-                                            type="checkbox"
-                                            className="form-check-input"
-                                            checked={!!m.enabled}
-                                            onChange={(e) => {
-                                                const v = e.target.checked;
-                                                setMods(prev => prev.map(x => x.id_modulo === m.id_modulo ? { ...x, enabled: v } : x));
-                                            }}
-                                        />
-                                    </td>
-                                </tr>
-                            ))}
+                            {filteredMods.map(m => {
+                                const restricted = isModuleRestrictedByCapability(m);
+                                const gate = moduleGateKey(m);
+                                const gateLabel = gate ? SAAS_MODULE_GATES[gate]?.label : null;
+                                const spec = moduleSpecForModule(m);
+                                return (
+                                    <tr key={m.id_modulo}>
+                                        <td>{m.id_modulo}</td>
+                                        <td style={{ fontWeight: 600 }}>
+                                            {m.nombre}
+                                            {restricted && (
+                                                <div className="text-muted" style={{ fontSize: 12, fontWeight: 400 }}>
+                                                    Restringido por capacidad SaaS: {gateLabel}
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td style={{ fontSize: 12, opacity: 0.8 }}>{m.ruta || '-'}</td>
+                                        <td>
+                                            <input
+                                                type="checkbox"
+                                                className="form-check-input"
+                                                checked={!!m.enabled}
+                                                onChange={(e) => {
+                                                    const v = e.target.checked;
+                                                    setMods(prev => prev.map(x => x.id_modulo === m.id_modulo ? { ...x, enabled: v } : x));
+                                                }}
+                                            />
+                                        </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="btn btn-outline-primary btn-sm"
+                                                disabled={!spec}
+                                                onClick={() => {
+                                                    if (!spec) return;
+                                                    setPermQ('');
+                                                    setSelectedModuleKey(spec.key);
+                                                }}
+                                            >
+                                                Ver permisos
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
-                </div>
-            ) : tab === 'permisos' ? (
-                // NUEVO: UI permisos por módulo (click -> lista)
-                <div className="row g-3">
-                    {/* Columna izquierda: módulos */}
-                    <div className="col-12 col-lg-4">
-                        <div className="card">
-                            <div className="card-body">
-                                <div className="fw-bold mb-2">Módulos</div>
-
-                                <div className="list-group">
-                                    {moduleListWithCounts.map(ms => {
-                                        const active = ms.key === selectedModuleKey;
-                                        return (
-                                            <button
-                                                key={ms.key}
-                                                type="button"
-                                                className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${active ? 'active' : ''}`}
-                                                onClick={() => setSelectedModuleKey(ms.key)}
-                                            >
-                                                <div className="d-flex flex-column text-start">
-                                                    <span style={{ fontWeight: 700 }}>{ms.label}</span>
-                                                    <span style={{ fontSize: 12, opacity: active ? 0.95 : 0.7 }}>
-                                                        {ms.enabled}/{ms.total} habilitados
-                                                    </span>
-                                                </div>
-                                                <span className={`badge ${active ? 'bg-light text-dark' : 'bg-secondary'}`}>
-                                                    {ms.total}
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-
-                                <div className="text-muted mt-2" style={{ fontSize: 12 }}>
-                                    Solo se muestran permisos usados por el sistema (mapeados a módulos).
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Columna derecha: permisos del módulo */}
-                    <div className="col-12 col-lg-8">
-                        <div className="card">
-                            <div className="card-body">
-                                <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
-                                    <div>
-                                        <div className="fw-bold">{selectedModule?.label ?? 'Módulo'}</div>
-                                        <div className="text-muted" style={{ fontSize: 12 }}>
-                                            {moduleStats.enabled}/{moduleStats.total} habilitados - haz click para activar/desactivar
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {moduleMissingInDb.length > 0 && (
-                                    <div className="alert alert-warning py-2 mt-3">
-                                        <small>
-                                            Aviso: Hay permisos definidos en el módulo que no existen en la BD:
-                                            <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                                                {' '}
-                                                {moduleMissingInDb.join(', ')}
-                                            </span>
-                                        </small>
-                                    </div>
-                                )}
-
-                                <div className="table-responsive mt-3">
-                                    <table className="table table-sm align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>Código</th>
-                                                <th>Descripción</th>
-                                                <th style={{ width: 110 }}>Habilitar</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {modulePermRows.length === 0 ? (
-                                                <tr>
-                                                    <td colSpan={3} className="text-muted py-3">
-                                                        No hay permisos para mostrar (revisa filtro o el mapeo del módulo).
-                                                    </td>
-                                                </tr>
-                                            ) : (
-                                                modulePermRows.map(({ code, row }) => (
-                                                    <tr key={code}>
-                                                        <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
-                                                            {code}
-                                                        </td>
-                                                        <td style={{ fontSize: 12, opacity: 0.85 }}>
-                                                            {row?.descripcion ?? <span className="text-muted">No existe en BD</span>}
-                                                        </td>
-                                                        <td>
-                                                            <input
-                                                                type="checkbox"
-                                                                className="form-check-input"
-                                                                checked={!!row?.enabled}
-                                                                disabled={!row}
-                                                                onChange={(e) => {
-                                                                    if (!row) return;
-                                                                    const v = e.target.checked;
-                                                                    setPerms(prev => prev.map(x => normCode(x.codigo) === code ? { ...x, enabled: v } : x));
-                                                                }}
-                                                            />
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* Opcional: no mapeados */}
-                                {showUnmapped && (
-                                    <div className="mt-4">
-                                        <div className="fw-bold mb-2">Permisos no mapeados / legacy (auditoría)</div>
-                                        <div className="text-muted mb-2" style={{ fontSize: 12 }}>
-                                            Esto es solo para inspección. Por defecto no se muestran para mantener la UI limpia.
-                                        </div>
-                                        <div className="table-responsive">
-                                            <table className="table table-sm align-middle">
-                                                <thead>
-                                                    <tr>
-                                                        <th style={{ width: 90 }}>ID</th>
-                                                        <th>Código</th>
-                                                        <th>Descripción</th>
-                                                        <th style={{ width: 110 }}>Enabled</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {unmappedPermRows.length === 0 ? (
-                                                        <tr>
-                                                            <td colSpan={4} className="text-muted py-3">No hay permisos no mapeados con este filtro.</td>
-                                                        </tr>
-                                                    ) : (
-                                                        unmappedPermRows.map(p => (
-                                                            <tr key={p.id_permiso}>
-                                                                <td>{p.id_permiso}</td>
-                                                                <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
-                                                                    {normCode(p.codigo)}
-                                                                </td>
-                                                                <td style={{ fontSize: 12, opacity: 0.85 }}>{p.descripcion}</td>
-                                                                <td>
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        className="form-check-input"
-                                                                        checked={!!p.enabled}
-                                                                        onChange={(e) => {
-                                                                            const v = e.target.checked;
-                                                                            setPerms(prev => prev.map(x => x.id_permiso === p.id_permiso ? { ...x, enabled: v } : x));
-                                                                        }}
-                                                                    />
-                                                                </td>
-                                                            </tr>
-                                                        ))
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-
-                            </div>
-                        </div>
-                    </div>
                 </div>
             ) : (
                 <div className="table-responsive">
@@ -1204,6 +1196,135 @@ export default function EmpresaDetailPage() {
                         </tbody>
                     </table>
                 </div>
+            )}
+
+            {selectedModule && (
+                <>
+                    <div className="modal d-block" tabIndex={-1} role="dialog" aria-modal="true">
+                        <div className="modal-dialog modal-lg modal-dialog-scrollable">
+                            <div className="modal-content">
+                                <div className="modal-header">
+                                    <div>
+                                        <h5 className="modal-title mb-0">Permisos de {selectedModule.label}</h5>
+                                        <div className="text-muted" style={{ fontSize: 12 }}>
+                                            {moduleStats.enabled}/{moduleStats.total} habilitados
+                                            {selectedModuleRestricted ? ' - techo SaaS inactivo' : ''}
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        aria-label="Cerrar"
+                                        onClick={() => setSelectedModuleKey(null)}
+                                    />
+                                </div>
+                                <div className="modal-body">
+                                    {selectedModuleRestricted && (
+                                        <div className="alert alert-warning py-2">
+                                            <small>
+                                                La capacidad SaaS requerida esta inactiva. Puedes guardar restricciones locales, pero el backend validara cualquier alta fuera del techo comercial.
+                                            </small>
+                                        </div>
+                                    )}
+
+                                    {moduleMissingInDb.length > 0 && (
+                                        <div className="alert alert-warning py-2">
+                                            <small>
+                                                Aviso: Hay permisos definidos en el modulo que no existen en la BD:
+                                                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                                                    {' '}
+                                                    {moduleMissingInDb.join(', ')}
+                                                </span>
+                                            </small>
+                                        </div>
+                                    )}
+
+                                    <input
+                                        className="form-control form-control-sm mb-3"
+                                        placeholder="Filtrar permisos..."
+                                        value={permQ}
+                                        onChange={(e) => setPermQ(e.target.value)}
+                                    />
+
+                                    <div className="table-responsive">
+                                        <table className="table table-sm align-middle mb-0">
+                                            <thead>
+                                                <tr>
+                                                    <th>Codigo</th>
+                                                    <th>Descripcion</th>
+                                                    <th style={{ width: 110 }}>Habilitar</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {modulePermRows.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={3} className="text-muted py-3">
+                                                            No hay permisos para mostrar.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    modulePermRows.map(({ code, row }) => {
+                                                        const restricted = isPermissionRestrictedByCapability(code);
+                                                        const kind = permissionKind(code);
+                                                        return (
+                                                            <tr key={code}>
+                                                                <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
+                                                                    <div>{code}</div>
+                                                                    <span className={`badge ${kind.className} mt-1`}>
+                                                                        {kind.label}
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ fontSize: 12, opacity: 0.85 }}>
+                                                                    {row?.descripcion ?? <span className="text-muted">No existe en BD</span>}
+                                                                    {restricted && (
+                                                                        <div className="text-muted mt-1">
+                                                                            Bloqueado por capacidad SaaS inactiva.
+                                                                        </div>
+                                                                    )}
+                                                                </td>
+                                                                <td>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="form-check-input"
+                                                                        checked={!!row?.enabled}
+                                                                        disabled={!row}
+                                                                        onChange={(e) => {
+                                                                            if (!row) return;
+                                                                            const v = e.target.checked;
+                                                                            setPerms(prev => prev.map(x => normCode(x.codigo) === code ? { ...x, enabled: v } : x));
+                                                                        }}
+                                                                    />
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div className="modal-footer">
+                                    <button
+                                        type="button"
+                                        className="btn btn-outline-secondary"
+                                        onClick={() => setSelectedModuleKey(null)}
+                                    >
+                                        Cerrar
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={savePerms}
+                                        disabled={loading}
+                                    >
+                                        Guardar permisos
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="modal-backdrop fade show" />
+                </>
             )}
         </PageLayout>
     );

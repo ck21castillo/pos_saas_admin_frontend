@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
+import SupportBlockDiagnosticModal from '../../components/SupportBlockDiagnosticModal';
 import {
   extenderPruebaSuscripcion,
   getEmpresaSuscripcion,
+  isSyncPending,
+  orderSaasCapabilities,
   reactivarEmpresaSuscripcion,
   registrarPagoSuscripcion,
+  saveEmpresaCapabilityException,
   saveEmpresaSuscripcion,
   suspenderEmpresaSuscripcion,
   type CompanySubscriptionResponse,
+  type SaasCapabilityBlockDiagnostic,
   type SaasCiclo,
+  type SaasEffectiveCapability,
   type SaasEstado,
   type SaasPlan,
   type SaasSubscription,
@@ -17,6 +23,7 @@ import {
 
 type Props = {
   idEmpresa: number;
+  onSynced?: () => void | Promise<void>;
 };
 
 type SubscriptionForm = SaveSubscriptionPayload;
@@ -105,6 +112,71 @@ function statusClass(value?: string | null): string {
   }
 }
 
+function apiErrorMessage(error: unknown, fallback: string) {
+  if (typeof error !== 'object' || error === null || !('response' in error)) return fallback;
+  const response = error.response;
+  if (typeof response !== 'object' || response === null || !('data' in response)) return fallback;
+  const data = response.data;
+  if (typeof data !== 'object' || data === null || !('error' in data)) return fallback;
+  return typeof data.error === 'string' && data.error.trim() ? data.error : fallback;
+}
+
+function apiStatus(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null || !('response' in error)) return null;
+  const response = error.response;
+  if (typeof response !== 'object' || response === null || !('status' in response)) return null;
+  return typeof response.status === 'number' ? response.status : null;
+}
+
+function apiResponseData(error: unknown): Record<string, unknown> | null {
+  if (typeof error !== 'object' || error === null || !('response' in error)) return null;
+  const response = error.response;
+  if (typeof response !== 'object' || response === null || !('data' in response)) return null;
+  const data = response.data;
+  return typeof data === 'object' && data !== null ? data as Record<string, unknown> : null;
+}
+
+function capabilityOriginDisplayLabel(value?: string | null): string {
+  switch (String(value ?? '').toUpperCase()) {
+    case 'PLAN':
+      return 'Plan';
+    case 'EXCEPCION_ADMINISTRATIVA':
+    case 'EXCEPCION_ADMIN':
+      return 'Excepcion administrativa';
+    case 'PLAN_SIN_SUSCRIPCION':
+    case 'SIN_SUSCRIPCION':
+      return 'Plan sin suscripcion';
+    default:
+      return value || '-';
+  }
+}
+
+function capabilityIncludedInPlan(capability: SaasEffectiveCapability): boolean {
+  return Boolean(capability.incluido_en_plan ?? capability.plan_incluida);
+}
+
+function diagnosticFromError(error: unknown): SaasCapabilityBlockDiagnostic | null {
+  const data = apiResponseData(error);
+  const diagnostic = data?.diagnostico_bloqueo;
+  return typeof diagnostic === 'object' && diagnostic !== null
+    ? diagnostic as SaasCapabilityBlockDiagnostic
+    : null;
+}
+
+function normalizeEffectiveCapabilities(items: SaasEffectiveCapability[] = []): SaasEffectiveCapability[] {
+  return items.map((capability) => ({
+    ...capability,
+    plan_incluida: capabilityIncludedInPlan(capability),
+  }));
+}
+
+function normalizeSubscriptionResponse(out: CompanySubscriptionResponse): CompanySubscriptionResponse {
+  return {
+    ...out,
+    capacidades_efectivas: normalizeEffectiveCapabilities(out.capacidades_efectivas || []),
+  };
+}
+
 function planPrice(plan: SaasPlan | null | undefined, ciclo: string): number {
   if (!plan) return 0;
   return String(ciclo).toUpperCase() === 'ANUAL'
@@ -176,7 +248,74 @@ function formFromData(data: CompanySubscriptionResponse | null): SubscriptionFor
   };
 }
 
-export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
+type CapabilityExceptionAction = 'ENABLE' | 'DISABLE' | 'RESTORE';
+
+type CapabilityCardProps = {
+  capability: SaasEffectiveCapability;
+  isSaving: boolean;
+  disabled: boolean;
+  onChange: (capability: SaasEffectiveCapability, action: CapabilityExceptionAction) => void;
+};
+
+export function CapabilityExceptionCard({ capability, isSaving, disabled, onChange }: CapabilityCardProps) {
+  return (
+    <div className="border rounded p-3 h-100">
+      <div className="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <div className="fw-semibold">{capability.nombre}</div>
+          <div className="text-muted small">{capability.descripcion || capability.codigo_capacidad}</div>
+        </div>
+        <span className={`badge ${capability.efectiva ? 'text-bg-success' : 'text-bg-secondary'}`}>
+          {capability.efectiva ? 'Activa' : 'Inactiva'}
+        </span>
+      </div>
+
+      <div className="row small mt-3 g-2">
+        <div className="col-sm-6">Incluida en plan: <b>{capabilityIncludedInPlan(capability) ? 'Si' : 'No'}</b></div>
+        <div className="col-sm-6">Origen: <b>{capabilityOriginDisplayLabel(capability.origen)}</b></div>
+      </div>
+      {capability.excepcion && (
+        <div className="alert alert-info py-2 px-3 small mt-3 mb-0">
+          <b>Excepcion activa:</b> {capability.excepcion.enabled ? 'habilitada' : 'deshabilitada'}.
+          <br />
+          <span>{capability.excepcion.motivo}</span>
+        </div>
+      )}
+
+      <div className="d-flex flex-wrap gap-2 mt-3">
+        {(!capability.excepcion || !capability.excepcion.enabled) && (
+          <button
+            className="btn btn-outline-success btn-sm"
+            onClick={() => onChange(capability, 'ENABLE')}
+            disabled={isSaving || disabled}
+          >
+            {isSaving ? 'Guardando...' : 'Habilitar por excepcion'}
+          </button>
+        )}
+        {(!capability.excepcion || capability.excepcion.enabled) && (
+          <button
+            className="btn btn-outline-danger btn-sm"
+            onClick={() => onChange(capability, 'DISABLE')}
+            disabled={isSaving || disabled}
+          >
+            {isSaving ? 'Guardando...' : 'Deshabilitar por excepcion'}
+          </button>
+        )}
+        {capability.excepcion && (
+          <button
+            className="btn btn-outline-primary btn-sm"
+            onClick={() => onChange(capability, 'RESTORE')}
+            disabled={isSaving || disabled}
+          >
+            {isSaving ? 'Guardando...' : 'Volver al plan'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function SaasSubscriptionPanel({ idEmpresa, onSynced }: Props) {
   const [data, setData] = useState<CompanySubscriptionResponse | null>(null);
   const [form, setForm] = useState<SubscriptionForm>(emptyForm());
   const [payment, setPayment] = useState<PaymentForm>({
@@ -188,6 +327,9 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingCapability, setSavingCapability] = useState<string | null>(null);
+  const [supportBlockDiagnostic, setSupportBlockDiagnostic] = useState<SaasCapabilityBlockDiagnostic | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const selectedPlan = useMemo(() => {
     return data?.planes.find((p) => p.id_plan === Number(form.id_plan)) ?? data?.planes[0] ?? null;
@@ -199,12 +341,26 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
   const accessBlocked = tenantStatus === 'SUSPENDED' || !companyActive;
   const accessLabel = accessBlocked ? 'Bloqueado' : 'Activo';
   const accessClass = accessBlocked ? 'text-bg-danger' : 'text-bg-success';
+  const pendingSyncText = 'El cambio comercial fue guardado. El tenant sera sincronizado automaticamente mediante reintento.';
+
+  const notifySyncResult = async (
+    sync: Parameters<typeof isSyncPending>[0],
+    title: string,
+    text: string
+  ) => {
+    if (isSyncPending(sync)) {
+      setSyncNotice(pendingSyncText);
+      return;
+    }
+    setSyncNotice(null);
+    await Swal.fire(title, text, 'success');
+  };
 
   const load = useCallback(async () => {
     if (!idEmpresa) return;
     setLoading(true);
     try {
-      const out = await getEmpresaSuscripcion(idEmpresa);
+      const out = normalizeSubscriptionResponse(await getEmpresaSuscripcion(idEmpresa));
       setData(out);
       const nextForm = formFromData(out);
       setForm(nextForm);
@@ -257,6 +413,70 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
     setForm(formFromData(nextData));
   };
 
+  const reflectCapabilities = (capacidades: SaasEffectiveCapability[]) => {
+    setData((current) => current ? { ...current, capacidades_efectivas: normalizeEffectiveCapabilities(capacidades) } : current);
+  };
+
+  const changeCapabilityException = async (
+    capability: SaasEffectiveCapability,
+    action: CapabilityExceptionAction
+  ) => {
+    if (capability.codigo_capacidad === 'SOPORTE_TECNICO' && action === 'DISABLE') {
+      const confirm = await Swal.fire({
+        title: 'Desactivar soporte tecnico',
+        text: 'Antes de apagar soporte tecnico se verificara que no existan ordenes abiertas.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Continuar',
+        cancelButtonText: 'Cancelar',
+      });
+      if (!confirm.isConfirmed) return;
+    }
+
+    const actionLabel = action === 'RESTORE'
+      ? 'Volver a la regla del plan'
+      : action === 'ENABLE'
+        ? 'Habilitar por excepcion'
+        : 'Deshabilitar por excepcion';
+    const result = await Swal.fire({
+      title: actionLabel,
+      text: `Indica el motivo para ${capability.nombre}.`,
+      input: 'textarea',
+      inputLabel: 'Motivo obligatorio',
+      inputPlaceholder: 'Describe la razon de esta decision.',
+      showCancelButton: true,
+      confirmButtonText: actionLabel,
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => String(value ?? '').trim() ? undefined : 'El motivo es obligatorio.',
+    });
+    if (!result.isConfirmed) return;
+
+    setSavingCapability(capability.codigo_capacidad);
+    try {
+      const motivo = String(result.value).trim();
+      const out = await saveEmpresaCapabilityException(idEmpresa, capability.codigo_capacidad, {
+        motivo,
+        ...(action === 'RESTORE'
+          ? { restablecer_plan: true as const }
+          : { enabled: action === 'ENABLE' }),
+      });
+      reflectCapabilities(out.capacidades_efectivas || []);
+      await load();
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Capacidad actualizada', 'La configuracion efectiva de la empresa fue actualizada.');
+    } catch (error: unknown) {
+      const diagnostic = diagnosticFromError(error);
+      if (apiStatus(error) === 409 && diagnostic) {
+        setSupportBlockDiagnostic(diagnostic);
+        await load();
+        return;
+      }
+      await Swal.fire('Error', apiErrorMessage(error, 'No se pudo actualizar la capacidad.'), 'error');
+    } finally {
+      setSavingCapability(null);
+    }
+  };
+
   const saveSubscription = async () => {
     if (!form.id_plan) {
       await Swal.fire('Plan requerido', 'Selecciona un plan antes de guardar.', 'warning');
@@ -268,7 +488,8 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
       const out = await saveEmpresaSuscripcion(idEmpresa, form);
       reflectSubscription(out.item);
       await load();
-      await Swal.fire('Guardado', 'Suscripcion actualizada correctamente.', 'success');
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Guardado', 'Suscripcion actualizada correctamente.');
     } catch {
       await Swal.fire('Error', 'No se pudo guardar la suscripcion.', 'error');
     } finally {
@@ -315,7 +536,8 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
       });
       reflectSubscription(out.suscripcion, { estado: 1, tenant_estado: 'ACTIVE' });
       await load();
-      await Swal.fire('Pago registrado', 'La empresa quedo activa segun el periodo pagado.', 'success');
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Pago registrado', 'La empresa quedo activa segun el periodo pagado.');
     } catch {
       await Swal.fire('Error', 'No se pudo registrar el pago.', 'error');
     } finally {
@@ -341,7 +563,8 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
       const out = await suspenderEmpresaSuscripcion(idEmpresa, String(answer.value ?? ''));
       reflectSubscription(out.item, { estado: 0, tenant_estado: 'SUSPENDED' });
       await load();
-      await Swal.fire('Suspendida', 'La empresa fue suspendida.', 'success');
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Suspendida', 'La empresa fue suspendida.');
     } catch {
       await Swal.fire('Error', 'No se pudo suspender la empresa.', 'error');
     } finally {
@@ -365,7 +588,8 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
       const out = await reactivarEmpresaSuscripcion(idEmpresa);
       reflectSubscription(out.item, { estado: 1, tenant_estado: 'ACTIVE' });
       await load();
-      await Swal.fire('Reactivada', 'La empresa fue reactivada.', 'success');
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Reactivada', 'La empresa fue reactivada.');
     } catch {
       await Swal.fire('Error', 'No se pudo reactivar la empresa.', 'error');
     } finally {
@@ -391,7 +615,8 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
       const out = await extenderPruebaSuscripcion(idEmpresa, Number(answer.value || 2));
       reflectSubscription(out.item, { estado: 1, tenant_estado: 'ACTIVE' });
       await load();
-      await Swal.fire('Prueba actualizada', 'La prueba fue extendida.', 'success');
+      await onSynced?.();
+      await notifySyncResult(out.sync, 'Prueba actualizada', 'La prueba fue extendida.');
     } catch {
       await Swal.fire('Error', 'No se pudo extender la prueba.', 'error');
     } finally {
@@ -399,7 +624,7 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
     }
   };
 
-  if (loading) {
+  if (loading && !data) {
     return <div className="py-4">Cargando suscripcion...</div>;
   }
 
@@ -412,6 +637,7 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
   }
 
   return (
+    <>
     <div className="row g-3">
       <div className="col-12">
         <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -439,6 +665,14 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
           </div>
         </div>
       </div>
+
+      {syncNotice && (
+        <div className="col-12">
+          <div className="alert alert-info py-2 mb-0 small">
+            {syncNotice}
+          </div>
+        </div>
+      )}
 
       <div className="col-12 col-md-3">
         <div className="card h-100">
@@ -483,7 +717,90 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
         </div>
       </div>
 
-      <div className="col-12">
+      <div className="col-12 order-2">
+        <div className="card">
+          <div className="card-body">
+            <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
+              <div>
+                <div className="fw-bold">Capacidades SaaS efectivas</div>
+                <div className="text-muted small">La empresa recibe estas capacidades según su plan y, si existe, su excepción administrativa activa.</div>
+              </div>
+              <button className="btn btn-outline-secondary btn-sm" onClick={load} disabled={loading || saving || savingCapability !== null}>
+                Actualizar
+              </button>
+            </div>
+
+            {(data.capacidades_efectivas || []).length === 0 ? (
+              <div className="text-muted small">No hay capacidades disponibles para esta suscripción.</div>
+            ) : (
+              <div className="d-flex flex-column gap-2">
+                {orderSaasCapabilities(data.capacidades_efectivas || []).map((capability) => {
+                  const isSaving = savingCapability === capability.codigo_capacidad;
+                  return (
+                    <div key={capability.codigo_capacidad}>
+                      <div className="border rounded px-3 py-2">
+                        <div className="d-flex justify-content-between align-items-start gap-2">
+                          <div>
+                            <div className="fw-semibold">{capability.nombre}</div>
+                            <div className="text-muted small">{capability.descripcion || capability.codigo_capacidad}</div>
+                          </div>
+                          <span className={`badge ${capability.efectiva ? 'text-bg-success' : 'text-bg-secondary'}`}>
+                            {capability.efectiva ? 'Activa' : 'Inactiva'}
+                          </span>
+                        </div>
+
+                        <div className="d-flex flex-wrap gap-3 small mt-2">
+                          <div className="col-sm-6">Incluida en plan: <b>{capability.plan_incluida ? 'Sí' : 'No'}</b></div>
+                          <div>Origen: <b>{capabilityOriginDisplayLabel(capability.origen)}</b></div>
+                        </div>
+                        {capability.excepcion && (
+                          <div className="alert alert-info py-2 px-3 small mt-3 mb-0">
+                            <b>Excepción activa:</b> {capability.excepcion.enabled ? 'habilitada' : 'deshabilitada'}.
+                            <br />
+                            <span>{capability.excepcion.motivo}</span>
+                          </div>
+                        )}
+
+                        <div className="d-flex flex-wrap gap-2 mt-3">
+                          {(!capability.excepcion || !capability.excepcion.enabled) && (
+                            <button
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => void changeCapabilityException(capability, 'ENABLE')}
+                              disabled={isSaving || saving}
+                            >
+                              {isSaving ? 'Guardando...' : 'Habilitar por excepción'}
+                            </button>
+                          )}
+                          {(!capability.excepcion || capability.excepcion.enabled) && (
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => void changeCapabilityException(capability, 'DISABLE')}
+                              disabled={isSaving || saving}
+                            >
+                              {isSaving ? 'Guardando...' : 'Deshabilitar por excepción'}
+                            </button>
+                          )}
+                          {capability.excepcion && (
+                            <button
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={() => void changeCapabilityException(capability, 'RESTORE')}
+                              disabled={isSaving || saving}
+                            >
+                              {isSaving ? 'Guardando...' : 'Volver al plan'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="col-12 order-1">
         <div className="card">
           <div className="card-body">
             <div className="fw-bold mb-3">Configuracion de suscripcion</div>
@@ -606,7 +923,7 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
         </div>
       </div>
 
-      <div className="col-12">
+      <div className="col-12 order-3">
         <div className="card">
           <div className="card-body">
             <div className="fw-bold mb-3">Registrar pago</div>
@@ -655,7 +972,7 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
         </div>
       </div>
 
-      <div className="col-12">
+      <div className="col-12 order-3">
         <div className="card">
           <div className="card-body">
             <div className="fw-bold mb-3">Pagos recientes</div>
@@ -692,7 +1009,12 @@ export default function SaasSubscriptionPanel({ idEmpresa }: Props) {
           </div>
         </div>
       </div>
+      <SupportBlockDiagnosticModal
+        diagnostic={supportBlockDiagnostic}
+        onClose={() => setSupportBlockDiagnostic(null)}
+      />
     </div>
+    </>
   );
 }
 

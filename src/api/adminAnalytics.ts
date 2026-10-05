@@ -23,12 +23,13 @@ export type LandingVisitsPathItem = {
 
 export type LandingVisitsSummary = {
   ok: boolean;
+  message?: string;
   range: {
     from: string;
     to: string;
     days: number;
   };
-  totals: LandingVisitsTotals;
+  totals?: LandingVisitsTotals | null;
   daily: LandingVisitsDailyItem[];
   paths: LandingVisitsPathItem[];
 };

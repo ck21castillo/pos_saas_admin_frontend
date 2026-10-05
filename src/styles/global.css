@@ -9,7 +9,7 @@
 :root{
   --header-h: 56px;
   --sidebar-w: 232px;
-  --sidebar-w-compact: 64px;
+  --sidebar-w-compact: 72px;
 
   --shell-bg: #1c2233;
   --shell-border: rgba(255,255,255,0.10);
@@ -20,6 +20,8 @@
   --content-bg: linear-gradient(180deg, #f7f9fc, #eef3fb 45%, #eaf1ff);
   --surface: #ffffff;
   --surface-br: #e6edf7;
+  --form-border: #aab7c8;
+  --form-border-hover: #8191a6;
 
   --text: #1f2937;
   --muted: #6b7280;
@@ -41,8 +43,11 @@ a:hover { color: var(--brand-500); }
 
 .form-control, .form-select{
   background: var(--surface);
-  border: 1px solid var(--surface-br);
+  border: 1px solid var(--form-border);
   color: var(--text);
+}
+.form-control:hover, .form-select:hover{
+  border-color: var(--form-border-hover);
 }
 .form-control:focus, .form-select:focus{
   border-color: var(--brand-300);

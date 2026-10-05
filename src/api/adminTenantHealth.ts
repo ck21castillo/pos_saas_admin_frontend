@@ -1,6 +1,8 @@
 ﻿import adminClient from './adminClient';
 
-export type TenantHealthStatus = 'OK' | 'WARNING' | 'ERROR';
+export type TenantHealthStatus = 'PENDING' | 'OK' | 'WARNING' | 'ERROR';
+export type TenantInspectionState = 'PENDING' | 'FRESH' | 'STALE';
+export type TenantInspectionSource = 'NOT_CHECKED' | 'SNAPSHOT' | 'DIRECT' | string;
 
 export type TenantInfo = {
   modo?: string | null;
@@ -22,6 +24,14 @@ export type TenantHealthItem = {
   tipo_negocio?: string | null;
   tenant: TenantInfo;
   health_status: TenantHealthStatus;
+  inspection?: {
+    state: TenantInspectionState;
+    source: TenantInspectionSource;
+    checked_at?: string | null;
+    ttl_seconds?: number | null;
+    deep?: boolean | number | null;
+    persisted?: boolean | null;
+  } | null;
   connection_ms?: number | null;
   check_ms?: number | null;
   db_size_bytes: number;
@@ -37,16 +47,18 @@ export type TenantHealthItem = {
   }>;
   warnings: string[];
   errors: string[];
-  checked_at: string;
+  checked_at?: string | null;
 };
 
 export type TenantHealthListResponse = {
   ok: boolean;
+  snapshot_supported?: boolean;
+  snapshot_ttl_seconds?: number;
   total: number;
   limit: number;
   offset: number;
   q: string;
-  summary: { ok: number; warning: number; error: number };
+  summary: { ok: number; warning: number; error: number; pending?: number };
   items: TenantHealthItem[];
 };
 
@@ -55,7 +67,7 @@ export async function listTenantHealth(params?: { q?: string; limit?: number; of
   return data as TenantHealthListResponse;
 }
 
-export async function getTenantHealth(idEmpresa: number, deep = true) {
+export async function getTenantHealth(idEmpresa: number, deep = false) {
   const { data } = await adminClient.get(`/admin/tenant-health/${idEmpresa}`, {
     params: { deep: deep ? 1 : 0 },
   });
