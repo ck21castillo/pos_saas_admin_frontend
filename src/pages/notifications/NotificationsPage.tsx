@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPopper } from '@popperjs/core';
+import { createPortal } from 'react-dom';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
 import { getEmpresaUsuarioAdmin, listEmpresas, type Empresa } from '../../api/adminEmpresas';
@@ -120,10 +122,14 @@ const NotificationsPage: React.FC = () => {
   const [q, setQ] = useState('');
   const [items, setItems] = useState<AdminNotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<number | null>(null);
+  const [actionsAnchor, setActionsAnchor] = useState<HTMLButtonElement | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [archiveEnabled, setArchiveEnabled] = useState(false);
   const [total, setTotal] = useState(0);
   const [limit, setLimit] = useState(25);
   const [offset, setOffset] = useState(0);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
 
   const loadWithFilters = async (
     nextOffset = offset,
@@ -198,12 +204,43 @@ const NotificationsPage: React.FC = () => {
     void loadAdminDestino(empresa);
   }, [scope, idEmpresa]);
 
+  useEffect(() => {
+    const closeActions = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('[data-notification-actions], [data-notification-actions-menu]')) {
+        setOpenActionsId(null);
+        setActionsAnchor(null);
+      }
+    };
+    document.addEventListener('mousedown', closeActions);
+    return () => document.removeEventListener('mousedown', closeActions);
+  }, []);
+
+  useEffect(() => {
+    if (!actionsAnchor || openActionsId === null || !actionsMenuRef.current) return;
+    const popper = createPopper(actionsAnchor, actionsMenuRef.current, {
+      placement: 'bottom-end',
+      strategy: 'fixed',
+      modifiers: [
+        { name: 'offset', options: { offset: [0, 6] } },
+        { name: 'preventOverflow', options: { boundary: 'viewport', padding: 8 } },
+        { name: 'flip', options: { fallbackPlacements: ['top-end', 'bottom-end'] } },
+        { name: 'computeStyles', options: { adaptive: false } },
+      ],
+    });
+    return () => popper.destroy();
+  }, [actionsAnchor, openActionsId]);
+
   const canCreate = useMemo(() => {
     if (!titulo.trim() || !mensaje.trim()) return false;
     if (scope === 'EMPRESA' && !idEmpresa.trim()) return false;
     if (scope === 'USUARIO' && (!idEmpresa.trim() || !adminDestino?.id_usuario)) return false;
     return true;
   }, [scope, idEmpresa, adminDestino, titulo, mensaje]);
+
+  const selectedActionNotification = useMemo(
+    () => items.find((notification) => notification.id_notification === openActionsId) ?? null,
+    [items, openActionsId]
+  );
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
   const currentPage = Math.floor(offset / Math.max(1, limit)) + 1;
@@ -271,6 +308,7 @@ const NotificationsPage: React.FC = () => {
       setExpiresAt('');
       if (scope === 'GLOBAL') setIdEmpresa('');
       await loadWithFilters(0, limit);
+      setShowCreateModal(false);
     } catch (error: unknown) {
       Swal.fire('Error', getErrorMessage(error, 'No se pudo crear notificacion'), 'error');
     } finally {
@@ -285,15 +323,15 @@ const NotificationsPage: React.FC = () => {
         out.reads.length === 0
           ? '<div style="color:#65748b">Sin lecturas registradas.</div>'
           : out.reads
-              .map(
-                (r) => `
+            .map(
+              (r) => `
             <tr>
               <td style="padding:6px;border-bottom:1px solid #e5e7eb">${escapeHtml(r.empresa_nombre || String(r.id_empresa))}</td>
               <td style="padding:6px;border-bottom:1px solid #e5e7eb">${escapeHtml(r.usuario_nombre || r.usuario_email || String(r.id_usuario))}</td>
               <td style="padding:6px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${escapeHtml(fmtDate(r.read_at))}</td>
             </tr>`
-              )
-              .join('');
+            )
+            .join('');
       await Swal.fire({
         title: `Alcance y lecturas #${n.id_notification}`,
         html: `
@@ -301,11 +339,10 @@ const NotificationsPage: React.FC = () => {
             <p><strong>Alcance:</strong> ${escapeHtml(n.target_label || scopeLabel(n.scope))}</p>
             <p><strong>Lecturas:</strong> ${out.read_count}</p>
             <div style="max-height:320px;overflow:auto">
-              ${
-                out.reads.length === 0
-                  ? rows
-                  : `<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Empresa</th><th style="text-align:left;padding:6px">Usuario</th><th style="text-align:left;padding:6px">Leida</th></tr></thead><tbody>${rows}</tbody></table>`
-              }
+              ${out.reads.length === 0
+            ? rows
+            : `<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Empresa</th><th style="text-align:left;padding:6px">Usuario</th><th style="text-align:left;padding:6px">Leida</th></tr></thead><tbody>${rows}</tbody></table>`
+          }
             </div>
           </div>`,
         width: 780,
@@ -455,71 +492,85 @@ const NotificationsPage: React.FC = () => {
 
   return (
     <PageLayout title="Notificaciones">
+      {showCreateModal && <div className="modal-backdrop fade show" />}
       <div className="row g-3">
-        <div className="col-12 col-lg-5">
-          <div className="card">
-            <div className="card-body">
-              <h5 className="card-title mb-3">Nueva notificacion</h5>
-              <div className="mb-2">
-                <label className="form-label">Categoria / alcance</label>
-                <select className="form-select" value={scope} onChange={(e) => setScope(e.target.value as NotificationScope)}>
-                  <option value="GLOBAL">Global (todos los clientes)</option>
-                  <option value="EMPRESA">Empresa</option>
-                  <option value="USUARIO">Usuario (administrador de empresa)</option>
-                </select>
+        <div
+          className={`modal fade ${showCreateModal ? 'show d-block' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-notification-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowCreateModal(false);
+          }}
+        >
+          <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title" id="new-notification-title">Nueva notificacion</h5>
+                <button className="btn-close" type="button" aria-label="Cerrar" onClick={() => setShowCreateModal(false)} />
               </div>
-              {(scope === 'EMPRESA' || scope === 'USUARIO') && (
+              <div className="modal-body">
                 <div className="mb-2">
-                  <label className="form-label">Empresa</label>
-                  <select className="form-select" value={idEmpresa} onChange={(e) => setIdEmpresa(e.target.value)}>
-                    <option value="">Selecciona...</option>
-                    {empresas.map((e) => <option key={e.id_empresa} value={String(e.id_empresa)}>{e.id_empresa} - {e.nombre}</option>)}
+                  <label className="form-label">Categoria / alcance</label>
+                  <select className="form-select" value={scope} onChange={(e) => setScope(e.target.value as NotificationScope)}>
+                    <option value="GLOBAL">Global (todos los clientes)</option>
+                    <option value="EMPRESA">Empresa</option>
+                    <option value="USUARIO">Usuario (administrador de empresa)</option>
                   </select>
                 </div>
-              )}
-              {scope === 'USUARIO' && (
-                <div className="mb-2">
-                  <label className="form-label">Usuario destino</label>
-                  <div className="form-control bg-light" style={{ minHeight: 42 }}>
-                    {loadingAdminDestino ? 'Buscando administrador...' : adminDestino ? `${adminDestino.nombre} (${adminDestino.email})` : 'Selecciona una empresa para cargar su administrador'}
+                {(scope === 'EMPRESA' || scope === 'USUARIO') && (
+                  <div className="mb-2">
+                    <label className="form-label">Empresa</label>
+                    <select className="form-select" value={idEmpresa} onChange={(e) => setIdEmpresa(e.target.value)}>
+                      <option value="">Selecciona...</option>
+                      {empresas.map((e) => <option key={e.id_empresa} value={String(e.id_empresa)}>{e.id_empresa} - {e.nombre}</option>)}
+                    </select>
                   </div>
-                  <small className="text-muted">Se usa automaticamente el usuario administrador activo de la empresa elegida.</small>
+                )}
+                {scope === 'USUARIO' && (
+                  <div className="mb-2">
+                    <label className="form-label">Usuario destino</label>
+                    <div className="form-control bg-light" style={{ minHeight: 42 }}>
+                      {loadingAdminDestino ? 'Buscando administrador...' : adminDestino ? `${adminDestino.nombre} (${adminDestino.email})` : 'Selecciona una empresa para cargar su administrador'}
+                    </div>
+                    <small className="text-muted">Se usa automaticamente el usuario administrador activo de la empresa elegida.</small>
+                  </div>
+                )}
+                <div className="mb-2">
+                  <label className="form-label">Tipo</label>
+                  <select className="form-select" value={tipo} onChange={(e) => setTipo(e.target.value as NotificationTipo)}>
+                    <option value="INFO">INFORMATIVO</option>
+                    <option value="SUCCESS">EXITO</option>
+                    <option value="WARNING">ADVERTENCIA</option>
+                    <option value="ERROR">ERROR</option>
+                  </select>
                 </div>
-              )}
-              <div className="mb-2">
-                <label className="form-label">Tipo</label>
-                <select className="form-select" value={tipo} onChange={(e) => setTipo(e.target.value as NotificationTipo)}>
-                  <option value="INFO">INFORMATIVO</option>
-                  <option value="SUCCESS">EXITO</option>
-                  <option value="WARNING">ADVERTENCIA</option>
-                  <option value="ERROR">ERROR</option>
-                </select>
-              </div>
-              <div className="mb-2">
-                <label className="form-label">Titulo</label>
-                <input className="form-control" value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={180} />
-              </div>
-              <div className="mb-2">
-                <label className="form-label">Mensaje</label>
-                <textarea className="form-control" rows={4} value={mensaje} onChange={(e) => setMensaje(e.target.value)} />
-              </div>
-              <div className="row g-2 mb-3">
-                <div className="col-12 col-md-6">
-                  <label className="form-label">Inicia</label>
-                  <input className="form-control" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+                <div className="mb-2">
+                  <label className="form-label">Titulo</label>
+                  <input className="form-control" value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={180} />
                 </div>
-                <div className="col-12 col-md-6">
-                  <label className="form-label">Vence</label>
-                  <input className="form-control" type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+                <div className="mb-2">
+                  <label className="form-label">Mensaje</label>
+                  <textarea className="form-control" rows={4} value={mensaje} onChange={(e) => setMensaje(e.target.value)} />
                 </div>
+                <div className="row g-2 mb-3">
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Inicia</label>
+                    <input className="form-control" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+                  </div>
+                  <div className="col-12 col-md-6">
+                    <label className="form-label">Vence</label>
+                    <input className="form-control" type="datetime-local" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+                  </div>
+                </div>
+                <button className="btn btn-primary w-100" disabled={creating || !canCreate} onClick={onCreate} type="button">
+                  {creating ? 'Creando...' : 'Previsualizar y crear'}
+                </button>
               </div>
-              <button className="btn btn-primary w-100" disabled={creating || !canCreate} onClick={onCreate} type="button">
-                {creating ? 'Creando...' : 'Previsualizar y crear'}
-              </button>
             </div>
           </div>
         </div>
-        <div className="col-12 col-lg-7">
+        <div className="col-12">
           <div className="card">
             <div className="card-body">
               <div className="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
@@ -528,6 +579,7 @@ const NotificationsPage: React.FC = () => {
                   <div className="small text-muted">Total: {total}</div>
                 </div>
                 <div className="d-flex gap-2">
+                  <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)} type="button">Nueva notificacion</button>
                   <button className="btn btn-outline-warning btn-sm" onClick={onArchiveExpired} type="button">Archivar expiradas</button>
                   <button className="btn btn-outline-secondary btn-sm" onClick={load} type="button">Recargar</button>
                 </div>
@@ -539,7 +591,7 @@ const NotificationsPage: React.FC = () => {
                 <button type="button" className={`btn btn-sm ${fScope === 'USUARIO' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => onScopeChipClick('USUARIO')}>Usuario</button>
               </div>
               <form className="row g-2 mb-3" onSubmit={(e) => { e.preventDefault(); onFilter(); }}>
-                <div className="col-12 col-md-3">
+                <div className="col-12 col-md-2">
                   <label className="form-label small mb-1">Alcance</label>
                   <select className="form-select form-select-sm" value={fScope} onChange={(e) => setFScope(parseScopeFilter(e.target.value))}>
                     <option value="">Todos</option>
@@ -548,7 +600,7 @@ const NotificationsPage: React.FC = () => {
                     <option value="USUARIO">USUARIO</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-3">
+                <div className="col-6 col-md-2">
                   <label className="form-label small mb-1">Situacion</label>
                   <select className="form-select form-select-sm" value={fSituacion} onChange={(e) => setFSituacion(parseSituacionFilter(e.target.value))}>
                     <option value="">Operativas</option>
@@ -559,7 +611,7 @@ const NotificationsPage: React.FC = () => {
                     <option value="ARCHIVADA">Archivadas</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-2">
+                <div className="col-6 col-md-1">
                   <label className="form-label small mb-1">Estado</label>
                   <select className="form-select form-select-sm" value={fEstado} onChange={(e) => setFEstado(parseEstadoFilter(e.target.value))}>
                     <option value="">Todos</option>
@@ -567,18 +619,18 @@ const NotificationsPage: React.FC = () => {
                     <option value="0">Inactivas</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-2">
+                <div className="col-6 col-md-1">
                   <label className="form-label small mb-1">Mostrar</label>
                   <select className="form-select form-select-sm" value={limit} onChange={(e) => onLimitChange(Number(e.target.value))}>
                     <option value={25}>25</option>
                     <option value={50}>50</option>
                   </select>
                 </div>
-                <div className="col-6 col-md-2">
+                <div className="col-6 col-md-1">
                   <label className="form-label small mb-1">Empresa</label>
                   <input className="form-control form-control-sm" placeholder="ID" value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} />
                 </div>
-                <div className="col-12">
+                <div className="col-6 col-md-5">
                   <label className="form-label small mb-1">Buscar</label>
                   <input className="form-control form-control-sm" placeholder="ID, titulo o mensaje" value={q} onChange={(e) => setQ(e.target.value)} />
                 </div>
@@ -589,12 +641,12 @@ const NotificationsPage: React.FC = () => {
               </form>
               <div className="table-responsive">
                 <table className="table table-sm align-middle">
-                  <thead><tr><th>ID</th><th>Alcance</th><th>Contenido</th><th>Situacion</th><th>Lecturas</th><th>Fecha</th><th /></tr></thead>
+                  <thead><tr><th>ID</th><th>Alcance</th><th>Contenido</th><th>Situacion</th><th>Fecha</th><th className="text-end">Acciones</th></tr></thead>
                   <tbody>
                     {loading ? (
-                      <tr><td colSpan={7}>Cargando...</td></tr>
+                      <tr><td colSpan={6}>Cargando...</td></tr>
                     ) : items.length === 0 ? (
-                      <tr><td colSpan={7}>Sin resultados</td></tr>
+                      <tr><td colSpan={6}>Sin resultados</td></tr>
                     ) : items.map((n) => (
                       <tr key={n.id_notification}>
                         <td>{n.id_notification}</td>
@@ -605,14 +657,26 @@ const NotificationsPage: React.FC = () => {
                           <div className="text-muted" style={{ fontSize: 12 }}>Inicia: {fmtDate(n.starts_at)} | Vence: {fmtDate(n.expires_at)}</div>
                         </td>
                         <td><span className={situacionBadgeClass(n.estado_operativo)}>{n.estado_operativo}</span><small className="text-muted d-block">{n.estado === 1 ? 'Activa' : 'Inactiva'}</small></td>
-                        <td><button className="btn btn-link btn-sm p-0" type="button" onClick={() => onShowReads(n)}>{n.read_count} lectura{Number(n.read_count) === 1 ? '' : 's'}</button><small className="text-muted d-block">Ult: {fmtDate(n.last_read_at)}</small></td>
                         <td>{fmtDate(n.created_at)}</td>
                         <td className="text-end">
-                          <div className="d-flex justify-content-end gap-2 flex-wrap">
-                            <button className="btn btn-sm btn-outline-info" onClick={() => onShowReads(n)} type="button">Alcance</button>
-                            <button className="btn btn-sm btn-outline-primary" onClick={() => onEdit(n)} type="button">Editar</button>
-                            <button className={`btn btn-sm ${n.estado === 1 ? 'btn-outline-danger' : 'btn-outline-success'}`} onClick={() => onToggleEstado(n)} type="button">{n.estado === 1 ? 'Desactivar' : 'Activar'}</button>
-                            <button className="btn btn-sm btn-outline-secondary" onClick={() => onArchive(n, n.estado_operativo !== 'ARCHIVADA')} type="button">{n.estado_operativo === 'ARCHIVADA' ? 'Restaurar' : 'Archivar'}</button>
+                          <div className="dropdown d-inline-block" data-notification-actions>
+                            <button
+                              className="btn btn-sm btn-outline-secondary dropdown-toggle"
+                              type="button"
+                              aria-expanded={openActionsId === n.id_notification}
+                              aria-haspopup="menu"
+                              onClick={(event) => {
+                                if (openActionsId === n.id_notification) {
+                                  setOpenActionsId(null);
+                                  setActionsAnchor(null);
+                                  return;
+                                }
+                                setOpenActionsId(n.id_notification);
+                                setActionsAnchor(event.currentTarget);
+                              }}
+                            >
+                              Acciones
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -632,6 +696,30 @@ const NotificationsPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {selectedActionNotification && actionsAnchor && createPortal(
+        <div
+          ref={actionsMenuRef}
+          className="dropdown-menu show"
+          data-notification-actions-menu
+          role="menu"
+          style={{ display: 'block', minWidth: 190, zIndex: 1080 }}
+        >
+          <button className="dropdown-item" type="button" onClick={() => { setOpenActionsId(null); setActionsAnchor(null); void onShowReads(selectedActionNotification); }}>
+            Lecturas ({selectedActionNotification.read_count})
+          </button>
+          <div className="dropdown-divider" />
+          <button className="dropdown-item" type="button" onClick={() => { setOpenActionsId(null); setActionsAnchor(null); void onEdit(selectedActionNotification); }}>
+            Editar
+          </button>
+          <button className={selectedActionNotification.estado === 1 ? 'dropdown-item text-danger' : 'dropdown-item text-success'} type="button" onClick={() => { setOpenActionsId(null); setActionsAnchor(null); void onToggleEstado(selectedActionNotification); }}>
+            {selectedActionNotification.estado === 1 ? 'Desactivar' : 'Activar'}
+          </button>
+          <button className="dropdown-item" type="button" onClick={() => { setOpenActionsId(null); setActionsAnchor(null); void onArchive(selectedActionNotification, selectedActionNotification.estado_operativo !== 'ARCHIVADA'); }}>
+            {selectedActionNotification.estado_operativo === 'ARCHIVADA' ? 'Restaurar' : 'Archivar'}
+          </button>
+        </div>,
+        document.body
+      )}
     </PageLayout>
   );
 };

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
 import {
   getTenantHealth,
   listTenantHealth,
   type TenantHealthItem,
+  type TenantInspectionState,
   type TenantHealthStatus,
 } from '../../api/adminTenantHealth';
 import '../../styles/tenant-health.css';
@@ -13,15 +14,29 @@ const numberFmt = new Intl.NumberFormat('es-CO');
 const moneyFmt = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 function statusClass(status: TenantHealthStatus) {
+  if (status === 'PENDING') return 'badge text-bg-secondary';
   if (status === 'OK') return 'badge text-bg-success';
   if (status === 'WARNING') return 'badge text-bg-warning';
   return 'badge text-bg-danger';
 }
 
 function statusLabel(status: TenantHealthStatus) {
+  if (status === 'PENDING') return 'Sin verificacion';
   if (status === 'OK') return 'OK';
   if (status === 'WARNING') return 'Alerta';
   return 'Error';
+}
+
+function inspectionClass(state?: TenantInspectionState | null) {
+  if (state === 'FRESH') return 'badge text-bg-success';
+  if (state === 'STALE') return 'badge text-bg-warning';
+  return 'badge text-bg-light border text-dark';
+}
+
+function inspectionLabel(state?: TenantInspectionState | null) {
+  if (state === 'FRESH') return 'Vigente';
+  if (state === 'STALE') return 'Vencida';
+  return 'Aun sin verificacion';
 }
 
 function n(value: unknown) {
@@ -44,18 +59,27 @@ export default function TenantHealthPage() {
   const [limit, setLimit] = useState(25);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState({ ok: 0, warning: 0, error: 0 });
+  const [summary, setSummary] = useState({ ok: 0, warning: 0, error: 0, pending: 0 });
   const [items, setItems] = useState<TenantHealthItem[]>([]);
   const [selected, setSelected] = useState<TenantHealthItem | null>(null);
   const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
+  const [deepLoadingId, setDeepLoadingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [snapshotSupported, setSnapshotSupported] = useState(true);
+  const [snapshotTtlSeconds, setSnapshotTtlSeconds] = useState<number | null>(null);
 
   const page = useMemo(() => Math.floor(offset / Math.max(1, limit)) + 1, [offset, limit]);
   const pages = useMemo(() => Math.max(1, Math.ceil(total / Math.max(1, limit))), [total, limit]);
   const from = total === 0 ? 0 : offset + 1;
   const to = Math.min(offset + items.length, total);
+
+  const updateLocalItem = useCallback((item: TenantHealthItem) => {
+    setSelected(item);
+    setItems((prev) => prev.map((row) => (row.id_empresa === item.id_empresa ? item : row)));
+    setUpdatedAt(new Date());
+  }, []);
 
   const load = async (nextOffset = offset, nextLimit = limit, nextQ = q) => {
     setLoading(true);
@@ -66,13 +90,22 @@ export default function TenantHealthPage() {
       setTotal(Number(out.total ?? 0));
       setLimit(Number(out.limit ?? nextLimit));
       setOffset(Number(out.offset ?? nextOffset));
-      setSummary(out.summary ?? { ok: 0, warning: 0, error: 0 });
+      setSummary({
+        ok: Number(out.summary?.ok ?? 0),
+        warning: Number(out.summary?.warning ?? 0),
+        error: Number(out.summary?.error ?? 0),
+        pending: Number(out.summary?.pending ?? 0),
+      });
+      setSnapshotSupported(Boolean(out.snapshot_supported ?? true));
+      setSnapshotTtlSeconds(typeof out.snapshot_ttl_seconds === 'number' ? out.snapshot_ttl_seconds : null);
       setUpdatedAt(new Date());
-      if (out.items.length > 0 && !selected) {
-        setSelected(out.items[0]);
-      }
       if (out.items.length === 0) {
         setSelected(null);
+      } else if (selected) {
+        setSelected((current) => {
+          if (!current) return current;
+          return (out.items ?? []).find((item) => item.id_empresa === current.id_empresa) ?? current;
+        });
       }
     } catch {
       setError('No se pudo cargar la salud multibase.');
@@ -86,23 +119,41 @@ export default function TenantHealthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const verify = async (idEmpresa: number) => {
-    setDetailLoading(true);
+  const openDetail = async (item: TenantHealthItem) => {
+    setSelected(item);
+    setDetailLoadingId(item.id_empresa);
     setError('');
-    void Swal.fire({
-      title: 'Verificando tenant',
-      text: 'Revisando conexion, tablas, conteos y actividad reciente.',
-      allowOutsideClick: false,
-      allowEscapeKey: false,
-      didOpen: () => Swal.showLoading(),
-    });
     try {
-      const out = await getTenantHealth(idEmpresa, true);
-      setSelected(out.item);
-      setItems((prev) => prev.map((item) => (item.id_empresa === idEmpresa ? out.item : item)));
-      setUpdatedAt(new Date());
+      const out = await getTenantHealth(item.id_empresa, false);
+      updateLocalItem(out.item);
+    } catch {
+      setError('No se pudo verificar el tenant seleccionado.');
+    } finally {
+      setDetailLoadingId(null);
+    }
+  };
 
-      const icon = out.item.health_status === 'OK' ? 'success' : out.item.health_status === 'WARNING' ? 'warning' : 'error';
+  const runDeepDiagnostic = async (item: TenantHealthItem) => {
+    const answer = await Swal.fire({
+      icon: 'question',
+      title: 'Diagnostico profundo',
+      text: 'Esta revision puede tardar mas porque consulta informacion adicional del tenant.',
+      showCancelButton: true,
+      confirmButtonText: 'Ejecutar diagnostico',
+      cancelButtonText: 'Cancelar',
+    });
+    if (!answer.isConfirmed) return;
+
+    setDeepLoadingId(item.id_empresa);
+    setError('');
+    try {
+      const out = await getTenantHealth(item.id_empresa, true);
+      updateLocalItem(out.item);
+      const icon = out.item.health_status === 'OK'
+        ? 'success'
+        : out.item.health_status === 'WARNING' || out.item.health_status === 'PENDING'
+          ? 'warning'
+          : 'error';
       await Swal.fire({
         icon,
         title: `Resultado: ${statusLabel(out.item.health_status)}`,
@@ -110,10 +161,10 @@ export default function TenantHealthPage() {
         confirmButtonText: 'Entendido',
       });
     } catch {
-      setError('No se pudo verificar el tenant seleccionado.');
-      await Swal.fire('Error', 'No se pudo verificar el tenant seleccionado.', 'error');
+      setError('No se pudo ejecutar el diagnostico profundo.');
+      await Swal.fire('Error', 'No se pudo ejecutar el diagnostico profundo.', 'error');
     } finally {
-      setDetailLoading(false);
+      setDeepLoadingId(null);
     }
   };
 
@@ -168,11 +219,17 @@ export default function TenantHealthPage() {
       </div>
 
       {error ? <div className="alert alert-danger py-2">{error}</div> : null}
+      {!snapshotSupported ? (
+        <div className="alert alert-warning py-2">
+          El resumen aun no esta preparado para guardar verificaciones. Puedes abrir el detalle de una empresa para revisarla puntualmente.
+        </div>
+      ) : null}
 
       <div className="tenant-kpis">
         <article><span>OK</span><strong>{n(summary.ok)}</strong></article>
         <article><span>Alertas</span><strong>{n(summary.warning)}</strong></article>
         <article><span>Errores</span><strong>{n(summary.error)}</strong></article>
+        <article><span>Pendientes</span><strong>{n(summary.pending)}</strong></article>
         <article><span>Total empresas</span><strong>{n(total)}</strong></article>
       </div>
 
@@ -188,20 +245,22 @@ export default function TenantHealthPage() {
                   <th style={{ width: 110 }}>Salud</th>
                   <th style={{ width: 90 }}>Tamano</th>
                   <th style={{ width: 90 }}>Ventas 30d</th>
-                  <th style={{ width: 90 }}>Ms</th>
-                  <th style={{ width: 120 }} />
+                  <th style={{ width: 125 }}>Snapshot</th>
+                  <th style={{ width: 145 }}>Ultima verificacion</th>
+                  <th style={{ width: 80 }}>Ms</th>
+                  <th style={{ width: 110 }} />
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="py-3 text-muted">Cargando...</td></tr>
+                  <tr><td colSpan={10} className="py-3 text-muted">Cargando...</td></tr>
                 ) : items.length === 0 ? (
-                  <tr><td colSpan={8} className="py-3 text-muted">Sin resultados</td></tr>
+                  <tr><td colSpan={10} className="py-3 text-muted">Sin resultados</td></tr>
                 ) : items.map((item) => (
                   <tr key={item.id_empresa} className={selected?.id_empresa === item.id_empresa ? 'table-active' : ''}>
                     <td>{item.id_empresa}</td>
                     <td>
-                      <button type="button" className="tenant-link" onClick={() => setSelected(item)}>
+                      <button type="button" className="tenant-link" onClick={() => void openDetail(item)}>
                         {item.empresa_nombre || `Empresa ${item.id_empresa}`}
                       </button>
                       <div className="small text-muted">{item.tipo_negocio || 'GENERAL'}</div>
@@ -213,10 +272,16 @@ export default function TenantHealthPage() {
                     <td><span className={statusClass(item.health_status)}>{statusLabel(item.health_status)}</span></td>
                     <td>{item.db_size || '-'}</td>
                     <td>{n(item.recent?.ventas_30d)}</td>
+                    <td>
+                      <span className={inspectionClass(item.inspection?.state)}>
+                        {inspectionLabel(item.inspection?.state)}
+                      </span>
+                    </td>
+                    <td className="small text-muted">{dateText(item.inspection?.checked_at ?? item.checked_at)}</td>
                     <td>{item.check_ms ?? '-'}</td>
                     <td className="text-end">
-                      <button className="btn btn-outline-primary btn-sm" type="button" disabled={detailLoading} onClick={() => void verify(item.id_empresa)}>
-                        Verificar
+                      <button className="btn btn-outline-primary btn-sm" type="button" disabled={detailLoadingId === item.id_empresa} onClick={() => void openDetail(item)}>
+                        {detailLoadingId === item.id_empresa ? 'Abriendo...' : 'Detalle'}
                       </button>
                     </td>
                   </tr>
@@ -246,6 +311,28 @@ export default function TenantHealthPage() {
                   <p>Empresa #{selected.id_empresa} - {selected.tenant?.db_name || 'sin tenant'}</p>
                 </div>
                 <span className={statusClass(selected.health_status)}>{statusLabel(selected.health_status)}</span>
+              </div>
+
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                <button className="btn btn-outline-primary btn-sm" type="button" disabled={detailLoadingId === selected.id_empresa} onClick={() => void openDetail(selected)}>
+                  {detailLoadingId === selected.id_empresa ? 'Actualizando...' : 'Actualizar detalle rapido'}
+                </button>
+                <button className="btn btn-outline-secondary btn-sm" type="button" disabled={deepLoadingId === selected.id_empresa} onClick={() => void runDeepDiagnostic(selected)}>
+                  {deepLoadingId === selected.id_empresa ? 'Diagnosticando...' : 'Diagnostico profundo'}
+                </button>
+              </div>
+
+              {selected.inspection?.persisted === false ? (
+                <div className="alert alert-warning py-2">
+                  La verificacion se completo, pero no pudo guardarse como instantanea para el resumen.
+                </div>
+              ) : null}
+              <div className="alert alert-light border py-2 small">
+                Estado del resumen: <b>{inspectionLabel(selected.inspection?.state)}</b>
+                {' '} / Origen: <b>{selected.inspection?.source || '-'}</b>
+                {' '} / Ultima verificacion: <b>{dateText(selected.inspection?.checked_at ?? selected.checked_at)}</b>
+                {selected.inspection?.source === 'DIRECT' ? <> / Profundo: <b>{selected.inspection.deep ? 'Si' : 'No'}</b></> : null}
+                {snapshotTtlSeconds ? <> / TTL: <b>{n(snapshotTtlSeconds)}s</b></> : null}
               </div>
 
               <div className="tenant-detail-grid">
@@ -303,7 +390,7 @@ export default function TenantHealthPage() {
               </div>
 
               <div className="tenant-detail-section small text-muted">
-                Ultima revision: {dateText(selected.checked_at)}
+                Ultima revision: {dateText(selected.inspection?.checked_at ?? selected.checked_at)}
               </div>
             </>
           )}

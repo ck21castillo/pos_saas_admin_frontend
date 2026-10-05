@@ -3,7 +3,9 @@ import PageLayout from '../../layout/PageLayout';
 import {
   getLandingVisitsSummary,
   type LandingVisitsDailyItem,
+  type LandingVisitsPathItem,
   type LandingVisitsSummary,
+  type LandingVisitsTotals,
 } from '../../api/adminAnalytics';
 import '../../styles/landing-visitors.css';
 
@@ -24,22 +26,129 @@ function maxVisits(items: LandingVisitsDailyItem[]) {
   return items.reduce((acc, item) => Math.max(acc, item.visits), 0);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function validTotals(value: unknown): LandingVisitsTotals | null {
+  if (!isRecord(value)) return null;
+  const visits_today = finiteNumber(value.visits_today);
+  const visitors_today = finiteNumber(value.visitors_today);
+  const visits_7d = finiteNumber(value.visits_7d);
+  const visitors_7d = finiteNumber(value.visitors_7d);
+  const visits_30d = finiteNumber(value.visits_30d);
+  const visitors_30d = finiteNumber(value.visitors_30d);
+  if (
+    visits_today === null ||
+    visitors_today === null ||
+    visits_7d === null ||
+    visitors_7d === null ||
+    visits_30d === null ||
+    visitors_30d === null
+  ) return null;
+  return { visits_today, visitors_today, visits_7d, visitors_7d, visits_30d, visitors_30d };
+}
+
+function normalizeDaily(items: unknown): LandingVisitsDailyItem[] | null {
+  if (!Array.isArray(items)) return null;
+  const rows: LandingVisitsDailyItem[] = [];
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.day !== 'string') return null;
+    const visits = finiteNumber(item.visits);
+    const visitors = finiteNumber(item.visitors);
+    if (visits === null || visitors === null) return null;
+    rows.push({ day: item.day, visits, visitors });
+  }
+  return rows;
+}
+
+function normalizePaths(items: unknown): LandingVisitsPathItem[] | null {
+  if (!Array.isArray(items)) return null;
+  const rows: LandingVisitsPathItem[] = [];
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.landing_path !== 'string') return null;
+    const visits = finiteNumber(item.visits);
+    const visitors = finiteNumber(item.visitors);
+    if (visits === null || visitors === null) return null;
+    rows.push({ landing_path: item.landing_path, visits, visitors });
+  }
+  return rows;
+}
+
+function normalizeSummary(value: LandingVisitsSummary): { summary: LandingVisitsSummary; missingTotals: boolean } {
+  if (!isRecord(value)) {
+    throw new Error('Respuesta malformada del servidor.');
+  }
+  if (value.ok !== true) {
+    throw new Error(typeof value.message === 'string' && value.message.trim() ? value.message : 'La API no pudo entregar el resumen.');
+  }
+  if (!isRecord(value.range) || typeof value.range.from !== 'string' || typeof value.range.to !== 'string') {
+    throw new Error('La respuesta no incluye el rango del resumen.');
+  }
+  const days = finiteNumber(value.range.days);
+  if (days === null) {
+    throw new Error('La respuesta no incluye un rango valido.');
+  }
+  const daily = normalizeDaily(value.daily);
+  const paths = normalizePaths(value.paths);
+  if (!daily || !paths) {
+    throw new Error('La respuesta no incluye series validas de visitas.');
+  }
+  const totals = validTotals(value.totals);
+  return {
+    summary: {
+      ok: true,
+      range: { from: value.range.from, to: value.range.to, days },
+      totals,
+      daily,
+      paths,
+    },
+    missingTotals: totals === null,
+  };
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (isRecord(error) && isRecord(error.response) && isRecord(error.response.data)) {
+    const data = error.response.data;
+    if (typeof data.error === 'string' && data.error.trim()) return data.error;
+    if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  }
+  return 'No se pudo cargar la metrica de visitantes.';
+}
+
+function kpiValue(totals: LandingVisitsTotals | null | undefined, key: keyof LandingVisitsTotals) {
+  return totals ? fmtN(totals[key]) : 'No disponible';
+}
+
 export default function LandingVisitorsPage() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [data, setData] = useState<LandingVisitsSummary | null>(null);
 
   const load = async (nextDays = days) => {
     setLoading(true);
     setError('');
+    setWarning('');
     try {
       const out = await getLandingVisitsSummary(nextDays);
-      setData(out);
+      const normalized = normalizeSummary(out);
+      setData(normalized.summary);
+      if (normalized.missingTotals) {
+        setWarning('La API entrego visitas, pero no entrego totales. Los indicadores principales no estan disponibles.');
+      }
       setUpdatedAt(new Date());
-    } catch {
-      setError('No se pudo cargar la metrica de visitantes.');
+    } catch (loadError: unknown) {
+      console.error('Landing visitors summary failed', loadError);
+      setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
@@ -88,29 +197,37 @@ export default function LandingVisitorsPage() {
       </div>
 
       {error ? (
-        <div className="alert alert-danger mb-3">{error}</div>
+        <div className="alert alert-danger mb-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+          <span>{error}</span>
+          <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => void load()} disabled={loading}>
+            Reintentar
+          </button>
+        </div>
+      ) : null}
+      {warning && !error ? (
+        <div className="alert alert-warning mb-3">{warning}</div>
       ) : null}
 
       <div className="lv-kpi-grid">
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">Hoy</div>
-          <div className="lv-kpi-value">{fmtN(data?.totals.visitors_today ?? 0)}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_today')}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{fmtN(data?.totals.visits_today ?? 0)} visitas</div>
+          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_today)} visitas` : 'Totales no disponibles'}</div>
         </article>
 
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">7 dias</div>
-          <div className="lv-kpi-value">{fmtN(data?.totals.visitors_7d ?? 0)}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_7d')}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{fmtN(data?.totals.visits_7d ?? 0)} visitas</div>
+          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_7d)} visitas` : 'Totales no disponibles'}</div>
         </article>
 
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">30 dias</div>
-          <div className="lv-kpi-value">{fmtN(data?.totals.visitors_30d ?? 0)}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_30d')}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{fmtN(data?.totals.visits_30d ?? 0)} visitas</div>
+          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_30d)} visitas` : 'Totales no disponibles'}</div>
         </article>
       </div>
 
