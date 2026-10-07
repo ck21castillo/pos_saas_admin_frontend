@@ -542,7 +542,7 @@ const HelpTicketsPage: React.FC = () => {
 
                   <div
                     className="border rounded p-2 mb-3"
-                    style={{ maxHeight: 320, overflow: 'auto', background: '#f8f9fa' }}
+                    style={{ maxHeight: 320, overflow: 'auto', background: 'var(--thead-bg)' }}
                   >
                     {orderedMessages.length === 0 ? (
                       <div className="text-muted">Sin mensajes</div>

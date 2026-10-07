@@ -21,7 +21,86 @@ export type Empresa = {
   updated_at?: string;
 };
 
-export type TipoNegocio = 'GENERAL' | 'DROGUERIA' | 'TIENDA_MINIMARKET';
+export type TipoNegocio =
+  | 'GENERAL'
+  | 'DROGUERIA'
+  | 'TIENDA_MINIMARKET'
+  | 'TECNOLOGIA_SERVICIO_TECNICO'
+  | 'FERRETERIA'
+  | 'MISCELANEA_PAPELERIA'
+  | 'COLMENA'
+  | 'ROPA_CALZADO'
+  | 'COSMETICA_BELLEZA'
+  | 'REPUESTOS_ACCESORIOS'
+  | 'TIENDA_MASCOTAS';
+
+export type TipoNegocioOption = {
+  value: TipoNegocio;
+  label: string;
+  help: string;
+};
+
+export const TIPO_NEGOCIO_OPTIONS: TipoNegocioOption[] = [
+  {
+    value: 'GENERAL',
+    label: 'Otro negocio',
+    help: 'Configuracion general para negocios que no requieren una plantilla especializada.',
+  },
+  {
+    value: 'DROGUERIA',
+    label: 'Droguería',
+    help: 'Plantilla para droguerias con lotes, vencimientos y venta por presentaciones.',
+  },
+  {
+    value: 'TIENDA_MINIMARKET',
+    label: 'Tienda / minimarket',
+    help: 'Plantilla para tiendas, minimarkets y operacion de productos de consumo.',
+  },
+  {
+    value: 'TECNOLOGIA_SERVICIO_TECNICO',
+    label: 'Tecnología y servicio técnico',
+    help: 'Plantilla para venta de tecnologia, recepcion de equipos y servicios tecnicos.',
+  },
+  {
+    value: 'FERRETERIA',
+    label: 'Ferretería',
+    help: 'Plantilla para ferreterias y negocios con referencias, medidas y accesorios.',
+  },
+  {
+    value: 'MISCELANEA_PAPELERIA',
+    label: 'Miscelánea y papelería',
+    help: 'Plantilla para papelerias, miscelaneas y venta de articulos variados.',
+  },
+  {
+    value: 'COLMENA',
+    label: 'Colmena',
+    help: 'Plantilla para operacion tipo colmena.',
+  },
+  {
+    value: 'ROPA_CALZADO',
+    label: 'Tienda de ropa y calzado',
+    help: 'Plantilla para ropa, calzado, variantes y referencias por estilo.',
+  },
+  {
+    value: 'COSMETICA_BELLEZA',
+    label: 'Cosmética / belleza',
+    help: 'Plantilla para cosmetica, belleza y productos de cuidado personal.',
+  },
+  {
+    value: 'REPUESTOS_ACCESORIOS',
+    label: 'Repuestos y accesorios',
+    help: 'Plantilla para repuestos, accesorios y compatibilidades por referencia.',
+  },
+  {
+    value: 'TIENDA_MASCOTAS',
+    label: 'Tienda de mascotas',
+    help: 'Plantilla para alimento, accesorios y productos para mascotas.',
+  },
+];
+
+export const TIPO_NEGOCIO_LABELS: Record<TipoNegocio, string> = Object.fromEntries(
+  TIPO_NEGOCIO_OPTIONS.map((option) => [option.value, option.label])
+) as Record<TipoNegocio, string>;
 export type CodigoCapacidad = 'LOTES_VENCIMIENTOS' | 'PRODUCTOS_PRESENTACION' | 'PRODUCTOS_PESO';
 
 export type EmpresaCapacidadDetalle = {

@@ -8,7 +8,7 @@
 .page-layout-title h2{
   margin: 0;
   font-size: 18px;
-  color: #0f1f3d;
+  color: var(--text);
 }
 .page-layout-card{
   background: var(--surface);

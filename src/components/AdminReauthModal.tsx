@@ -64,10 +64,10 @@ export default function AdminReauthModal() {
         title: 'Sesion vencida',
         html: `
           <div style="text-align:left;max-width:520px;margin:0 auto">
-            <p style="margin:0 0 18px;color:#4b5563;font-size:18px;line-height:1.35">
+            <p style="margin:0 0 18px;color:var(--muted);font-size:18px;line-height:1.35">
               Ingresa tu contrase&ntilde;a para continuar con la sesion.
             </p>
-            <label for="admin-reauth-password" style="display:block;font-weight:700;margin-bottom:8px;color:#374151">
+            <label for="admin-reauth-password" style="display:block;font-weight:700;margin-bottom:8px;color:var(--text)">
               Contrase&ntilde;a
             </label>
             <div style="display:flex;gap:8px;align-items:center">
@@ -83,7 +83,7 @@ export default function AdminReauthModal() {
                 type="button"
                 title="Mostrar contrase&ntilde;a mientras se presiona"
                 aria-label="Mostrar contrase&ntilde;a mientras se presiona"
-                style="height:48px;width:52px;display:flex;align-items:center;justify-content:center;border:1px solid #94a3b8;border-radius:10px;background:white;color:#0f172a"
+                style="height:48px;width:52px;display:flex;align-items:center;justify-content:center;border:1px solid var(--form-border);border-radius:10px;background:var(--surface);color:var(--text)"
               >
                 ${eyeIcon}
               </button>

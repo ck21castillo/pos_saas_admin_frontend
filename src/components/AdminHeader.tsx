@@ -1,7 +1,7 @@
 import React from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../store/store';
-import { toggleSidebar } from '../store/uiSlice';
+import { toggleSidebar, toggleTheme } from '../store/uiSlice';
 import { adminLogout } from '../store/adminAuthSlice';
 import MI from './MI';
 import '../styles/Header.css';
@@ -15,6 +15,7 @@ function displayNameFromEmail(email: string): string {
 export default function AdminHeader() {
     const dispatch = useDispatch<AppDispatch>();
     const collapsed = useSelector((s: RootState) => s.ui.sidebarCollapsed);
+    const theme = useSelector((s: RootState) => s.ui.theme);
     const adminEmail = useSelector((s: RootState) => s.adminAuth.admin?.email) ?? 'admin@bersanopos.com';
 
     const [open, setOpen] = React.useState(false);
@@ -47,6 +48,15 @@ export default function AdminHeader() {
             </button>
 
             <h1 className="header-user-name">Hola, {name}</h1>
+
+            <button
+                className="header-theme-btn"
+                aria-label={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+                title={theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+                onClick={() => dispatch(toggleTheme())}
+            >
+                <MI name={theme === 'dark' ? 'light_mode' : 'dark_mode'} />
+            </button>
 
             <div className="header-user" ref={ref}>
                 <button className="header-user-btn" onClick={() => setOpen(v => !v)}>

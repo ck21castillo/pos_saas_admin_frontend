@@ -18,7 +18,8 @@
 }
 
 .header-burger,
-.header-icon-btn{
+.header-icon-btn,
+.header-theme-btn{
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -33,9 +34,17 @@
 }
 
 .header-burger:hover,
-.header-icon-btn:hover{
+.header-icon-btn:hover,
+.header-theme-btn:hover{
   background: rgba(37,99,235,0.06);
   color: #0b4aa3;
+}
+
+.header-burger:focus-visible,
+.header-icon-btn:focus-visible,
+.header-theme-btn:focus-visible{
+  outline: 2px solid #6aa3ff;
+  outline-offset: 2px;
 }
 
 .header-user-name{
@@ -159,6 +168,70 @@
 
 .header-menu-item:hover{
   background: var(--thead-bg);
+}
+
+[data-theme='dark'] .header-container{
+  background: rgba(3,5,8,0.88);
+  border-bottom-color: rgba(255,255,255,0.11);
+  box-shadow: none;
+}
+
+[data-theme='dark'] .header-burger,
+[data-theme='dark'] .header-icon-btn,
+[data-theme='dark'] .header-theme-btn{
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.16);
+  color: var(--shell-text);
+}
+
+[data-theme='dark'] .header-burger:hover,
+[data-theme='dark'] .header-icon-btn:hover,
+[data-theme='dark'] .header-theme-btn:hover{
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+[data-theme='dark'] .header-user-name{
+  color: var(--shell-text);
+}
+
+[data-theme='dark'] .header-user-btn{
+  background: transparent;
+  border-color: rgba(255,255,255,0.12);
+  color: var(--shell-text);
+}
+
+[data-theme='dark'] .header-user-btn:hover{
+  background: rgba(255,255,255,0.06);
+}
+
+[data-theme='dark'] .header-avatar{
+  background: var(--shell-bg);
+  color: var(--shell-text);
+  border-color: rgba(255,255,255,0.14);
+}
+
+[data-theme='dark'] .header-user-email{
+  color: rgba(255,255,255,0.68);
+}
+
+[data-theme='dark'] .header-menu{
+  background: #0a0e16;
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 14px 34px rgba(0,0,0,.42);
+}
+
+[data-theme='dark'] .header-menu-email{
+  color: rgba(255,255,255,0.66);
+  border-bottom-color: rgba(255,255,255,0.12);
+}
+
+[data-theme='dark'] .header-menu-item{
+  color: rgba(255,255,255,0.86);
+}
+
+[data-theme='dark'] .header-menu-item:hover{
+  background: rgba(255,255,255,0.08);
 }
 
 @media (max-width: 760px){

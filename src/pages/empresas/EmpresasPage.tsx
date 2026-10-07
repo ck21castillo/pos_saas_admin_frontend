@@ -3,13 +3,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../store/store';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
-import { listEmpresas, setEmpresaEstado, type Empresa } from '../../api/adminEmpresas';
-
-const tipoNegocioLabel: Record<string, string> = {
-    GENERAL: 'Otro negocio',
-    DROGUERIA: 'Drogueria',
-    TIENDA_MINIMARKET: 'Tienda / minimarket',
-};
+import { TIPO_NEGOCIO_LABELS, listEmpresas, setEmpresaEstado, type Empresa, type TipoNegocio } from '../../api/adminEmpresas';
 
 const valueOrDash = (value?: string | null) => {
     const text = String(value ?? '').trim();
@@ -133,7 +127,7 @@ export default function EmpresasPage() {
                             <th style={{ minWidth: 220 }}>Contacto</th>
                             <th style={{ minWidth: 240 }}>Ubicacion</th>
                             <th style={{ width: 140 }}>Estado</th>
-                            <th style={{ width: 220 }} />
+                            <th style={{ minWidth: 190, width: 190 }} />
                         </tr>
                     </thead>
                     <tbody>
@@ -142,7 +136,9 @@ export default function EmpresasPage() {
                         ) : items.length === 0 ? (
                             <tr><td colSpan={7} className="py-4">Sin resultados</td></tr>
                         ) : (
-                            items.map(e => (
+                            items.map(e => {
+                                const tipoNegocio = (e.tipo_negocio ?? 'GENERAL') as TipoNegocio;
+                                return (
                                 <tr key={e.id_empresa}>
                                     <td>{e.id_empresa}</td>
                                     <td>
@@ -156,10 +152,12 @@ export default function EmpresasPage() {
                                     </td>
                                     <td>
                                         <span className="badge text-bg-light border">
-                                            {tipoNegocioLabel[String(e.tipo_negocio ?? 'GENERAL')] ?? valueOrDash(e.tipo_negocio)}
+                                            {tipoNegocio in TIPO_NEGOCIO_LABELS
+                                                ? TIPO_NEGOCIO_LABELS[tipoNegocio]
+                                                : valueOrDash(e.tipo_negocio)}
                                         </span>
                                         <div className="text-muted mt-1" style={{ fontSize: 12 }}>
-                                            {valueOrDash(e.tipo_negocio)}
+                                            {valueOrDash(tipoNegocio)}
                                         </div>
                                     </td>
                                     <td>
@@ -188,18 +186,22 @@ export default function EmpresasPage() {
                                         )}
                                     </td>
                                     <td className="text-end">
-                                        <a className="btn btn-outline-primary btn-sm me-2" href={`#/empresas/${e.id_empresa}`}>
-                                            Configurar
-                                        </a>
-                                        <button
-                                            className={`btn btn-sm ${e.estado ? 'btn-outline-danger' : 'btn-outline-success'}`}
-                                            onClick={() => onToggleEstado(e)}
-                                        >
-                                            {e.estado ? 'Desactivar' : 'Activar'}
-                                        </button>
+                                        <div className="d-inline-flex align-items-center justify-content-end gap-2 flex-nowrap">
+                                            <a className="btn btn-outline-primary btn-sm text-nowrap" href={`#/empresas/${e.id_empresa}`}>
+                                                Configurar
+                                            </a>
+                                            <button
+                                                className={`btn btn-sm text-nowrap ${e.estado ? 'btn-outline-danger' : 'btn-outline-success'}`}
+                                                type="button"
+                                                onClick={() => onToggleEstado(e)}
+                                            >
+                                                {e.estado ? 'Desactivar' : 'Activar'}
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
-                            ))
+                                );
+                            })
                         )}
                     </tbody>
                 </table>

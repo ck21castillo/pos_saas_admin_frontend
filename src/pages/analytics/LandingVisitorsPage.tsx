@@ -122,8 +122,14 @@ function errorMessage(error: unknown): string {
   return 'No se pudo cargar la metrica de visitantes.';
 }
 
-function kpiValue(totals: LandingVisitsTotals | null | undefined, key: keyof LandingVisitsTotals) {
+function kpiValue(totals: LandingVisitsTotals | null | undefined, key: keyof LandingVisitsTotals, loading = false) {
+  if (loading) return 'Cargando...';
   return totals ? fmtN(totals[key]) : 'No disponible';
+}
+
+function kpiAlt(totals: LandingVisitsTotals | null | undefined, key: keyof LandingVisitsTotals, loading = false) {
+  if (loading) return 'Cargando totales...';
+  return totals ? `${fmtN(totals[key])} visitas` : 'Totales no disponibles';
 }
 
 export default function LandingVisitorsPage() {
@@ -161,13 +167,14 @@ export default function LandingVisitorsPage() {
   }, [days]);
 
   const topDaily = useMemo(() => maxVisits(data?.daily ?? []), [data?.daily]);
+  const loadingWithoutData = loading && !data;
 
   return (
     <PageLayout
       title="Visitantes landing"
       right={
         <div className="lv-head-right">
-          {updatedAt ? `Actualizado: ${updatedAt.toLocaleTimeString('es-CO')}` : 'Sin datos'}
+          {loadingWithoutData ? 'Cargando datos...' : updatedAt ? `Actualizado: ${updatedAt.toLocaleTimeString('es-CO')}` : 'Sin datos'}
         </div>
       }
     >
@@ -211,23 +218,23 @@ export default function LandingVisitorsPage() {
       <div className="lv-kpi-grid">
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">Hoy</div>
-          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_today')}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_today', loadingWithoutData)}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_today)} visitas` : 'Totales no disponibles'}</div>
+          <div className="lv-kpi-alt">{kpiAlt(data?.totals, 'visits_today', loadingWithoutData)}</div>
         </article>
 
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">7 dias</div>
-          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_7d')}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_7d', loadingWithoutData)}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_7d)} visitas` : 'Totales no disponibles'}</div>
+          <div className="lv-kpi-alt">{kpiAlt(data?.totals, 'visits_7d', loadingWithoutData)}</div>
         </article>
 
         <article className="lv-kpi-card">
           <div className="lv-kpi-label">30 dias</div>
-          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_30d')}</div>
+          <div className="lv-kpi-value">{kpiValue(data?.totals, 'visitors_30d', loadingWithoutData)}</div>
           <div className="lv-kpi-sub">personas unicas</div>
-          <div className="lv-kpi-alt">{data?.totals ? `${fmtN(data.totals.visits_30d)} visitas` : 'Totales no disponibles'}</div>
+          <div className="lv-kpi-alt">{kpiAlt(data?.totals, 'visits_30d', loadingWithoutData)}</div>
         </article>
       </div>
 
