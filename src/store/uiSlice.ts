@@ -1,6 +1,19 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-type UIState = { sidebarCollapsed: boolean };
+export type ThemeMode = 'light' | 'dark';
+
+type UIState = {
+  sidebarCollapsed: boolean;
+  theme: ThemeMode;
+};
+
+function readTheme(): ThemeMode {
+  try {
+    return String(localStorage.getItem('themeMode') ?? 'light').toLowerCase() === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
 
 const initialState: UIState = {
   sidebarCollapsed: (() => {
@@ -9,6 +22,7 @@ const initialState: UIState = {
       return false;
     }
   })(),
+  theme: readTheme(),
 };
 
 const uiSlice = createSlice({
@@ -29,8 +43,22 @@ const uiSlice = createSlice({
         // Ignorar errores de localStorage (modo privado/restricciones del navegador).
       }
     },
+    toggleTheme(state) {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('themeMode', state.theme); }
+      catch {
+        // Ignorar errores de localStorage (modo privado/restricciones del navegador).
+      }
+    },
+    setTheme(state, action: PayloadAction<ThemeMode>) {
+      state.theme = action.payload;
+      try { localStorage.setItem('themeMode', state.theme); }
+      catch {
+        // Ignorar errores de localStorage (modo privado/restricciones del navegador).
+      }
+    },
   },
 });
 
-export const { toggleSidebar, setSidebar } = uiSlice.actions;
+export const { toggleSidebar, setSidebar, toggleTheme, setTheme } = uiSlice.actions;
 export default uiSlice.reducer;

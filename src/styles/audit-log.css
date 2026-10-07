@@ -21,9 +21,9 @@
 
 .audit-list,
 .audit-detail {
-  border: 1px solid #dce5f3;
+  border: 1px solid var(--surface-br);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   padding: 14px;
 }
 
@@ -32,8 +32,8 @@
   max-width: 280px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #eef4ff;
-  color: #1d4ed8;
+  background: var(--thead-bg);
+  color: var(--brand-600);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
@@ -57,7 +57,7 @@
 
 .audit-detail-head p {
   margin: 4px 0 0;
-  color: #667085;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -69,15 +69,15 @@
 }
 
 .audit-meta div {
-  border: 1px solid #e4ebf5;
+  border: 1px solid var(--surface-br);
   border-radius: 8px;
   padding: 10px;
-  background: #f8fbff;
+  background: var(--thead-bg);
 }
 
 .audit-meta span {
   display: block;
-  color: #667085;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -95,10 +95,10 @@
 
 .audit-json-grid section,
 .audit-user-agent {
-  border: 1px solid #e4ebf5;
+  border: 1px solid var(--surface-br);
   border-radius: 8px;
   padding: 10px;
-  background: #fbfdff;
+  background: var(--surface);
 }
 
 .audit-json-grid pre {
@@ -109,7 +109,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
-  color: #101828;
+  color: var(--text);
 }
 
 .audit-user-agent {
@@ -118,7 +118,7 @@
 
 .audit-user-agent p {
   margin: 8px 0 0;
-  color: #475467;
+  color: var(--muted);
   font-size: 12px;
   overflow-wrap: anywhere;
 }

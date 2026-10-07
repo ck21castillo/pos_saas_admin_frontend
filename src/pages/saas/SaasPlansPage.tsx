@@ -164,15 +164,29 @@ function emptyToNull(value?: string | null): string | null {
   return text ? text : null;
 }
 
+function boolValue(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (['1', 't', 'true', 'yes', 'si', 'on'].includes(text)) return true;
+    if (['0', 'f', 'false', 'no', 'off', ''].includes(text)) return false;
+  }
+  return fallback;
+}
+
 function publicProfileFromResponse(plan: SaasPlan, beneficios: SaasPlanPublicBenefit[] = []): SaveSaasPlanPublicProfilePayload {
   return {
     landing_titulo: plan.landing_titulo || '',
     landing_resumen: plan.landing_resumen || '',
     landing_icono: plan.landing_icono || '',
-    landing_destacado: Boolean(plan.landing_destacado),
+    landing_destacado: boolValue(plan.landing_destacado),
     landing_etiqueta: plan.landing_etiqueta || '',
     landing_cta_texto: plan.landing_cta_texto || '',
-    beneficios,
+    beneficios: beneficios.map((benefit) => ({
+      ...benefit,
+      incluido: boolValue(benefit.incluido, true),
+    })),
   };
 }
 
@@ -181,7 +195,7 @@ function publicProfilePayload(profile: SaveSaasPlanPublicProfilePayload): SaveSa
     landing_titulo: emptyToNull(profile.landing_titulo),
     landing_resumen: emptyToNull(profile.landing_resumen),
     landing_icono: String(profile.landing_icono ?? '').trim(),
-    landing_destacado: Boolean(profile.landing_destacado),
+    landing_destacado: boolValue(profile.landing_destacado),
     landing_etiqueta: emptyToNull(profile.landing_etiqueta),
     landing_cta_texto: String(profile.landing_cta_texto ?? '').trim(),
     beneficios: profile.beneficios.map((benefit) => ({
@@ -190,7 +204,7 @@ function publicProfilePayload(profile: SaveSaasPlanPublicProfilePayload): SaveSa
       titulo: String(benefit.titulo ?? '').trim(),
       descripcion: emptyToNull(benefit.descripcion),
       icono: emptyToNull(benefit.icono),
-      incluido: Boolean(benefit.incluido),
+      incluido: boolValue(benefit.incluido),
       orden: Number(benefit.orden || 0),
     })),
   };

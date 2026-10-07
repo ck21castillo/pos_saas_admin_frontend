@@ -211,3 +211,35 @@ body.has-collapsed .sidebar-user-box{
     width: min(292px, 88vw);
   }
 }
+
+[data-theme='dark'] .sidebar-container{
+  background:
+    radial-gradient(125% 40% at 100% -14%, rgba(255,255,255,0.03), transparent 64%),
+    linear-gradient(180deg, #020304, #030508 56%, #04070b);
+  border-right-color: rgba(255,255,255,0.11);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.028);
+}
+
+[data-theme='dark'] .sidebar-link{
+  color: rgba(255,255,255,0.86);
+}
+
+[data-theme='dark'] .sidebar-link:hover{
+  background: rgba(255,255,255,0.075);
+  border-color: rgba(255,255,255,0.15);
+}
+
+[data-theme='dark'] .sidebar-link.active{
+  background: linear-gradient(90deg, rgba(106,151,224,0.24), rgba(106,151,224,0.09) 58%, transparent);
+  border-color: rgba(126,170,238,0.30);
+  box-shadow: inset 2px 0 0 rgba(126,170,238,0.94), 0 8px 20px rgba(0,0,0,0.30);
+}
+
+[data-theme='dark'] .sidebar-nav::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.24);
+}
+
+[data-theme='dark'] .sidebar-user-box{
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.14);
+}

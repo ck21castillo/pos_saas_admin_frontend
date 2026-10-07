@@ -14,6 +14,14 @@ try {
   // Ignorar errores de acceso/parsing de localStorage en el arranque.
 }
 
+try {
+  const raw = String(localStorage.getItem('themeMode') ?? 'light').toLowerCase();
+  const theme = raw === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+} catch {
+  document.documentElement.setAttribute('data-theme', 'light');
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Provider store={store}>

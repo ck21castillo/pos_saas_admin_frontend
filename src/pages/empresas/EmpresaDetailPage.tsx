@@ -13,6 +13,7 @@ import {
     downloadInventarioInicialTemplate,
     previewInventarioInicialImport,
     confirmInventarioInicialImport,
+    TIPO_NEGOCIO_OPTIONS,
     type EmpresaConfiguracionNegocio,
     type EmpresaCapacidadDetalle,
     type EmpresaModuloItem,
@@ -37,24 +38,6 @@ const SAAS_MANAGED_CAPABILITY_CODES = new Set([
     'FACTURACION_ELECTRONICA',
     'NOTAS_FISCALES',
 ]);
-
-const BUSINESS_TYPE_OPTIONS: Array<{ value: TipoNegocio; label: string; help: string }> = [
-    {
-        value: 'GENERAL',
-        label: 'Otro negocio',
-        help: 'Configuración general para ferreterías, misceláneas, autopartes, tiendas de ropa y otros negocios con venta por unidad.',
-    },
-    {
-        value: 'DROGUERIA',
-        label: 'Droguería',
-        help: 'Activa lotes, vencimientos y el registro y la venta por presentaciones, como caja, blíster y unidad.',
-    },
-    {
-        value: 'TIENDA_MINIMARKET',
-        label: 'Tienda / minimarket',
-        help: 'Activa lotes, vencimientos y el registro y la venta de productos por peso (kg).',
-    },
-];
 
 /** ===========================
  *  1) Especificación de módulos/permisos "USADOS" (los del POS)
@@ -700,7 +683,7 @@ export default function EmpresaDetailPage() {
     /** módulos list (con contadores) */
     /** permisos no mapeados (opcional, para auditoría) */
     const selectedBusinessTypeOption = useMemo(() => {
-        return BUSINESS_TYPE_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? BUSINESS_TYPE_OPTIONS[0];
+        return TIPO_NEGOCIO_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? TIPO_NEGOCIO_OPTIONS[0];
     }, [tipoNegocio]);
 
     const tenant = businessConfig?.tenant ?? null;
@@ -786,7 +769,7 @@ export default function EmpresaDetailPage() {
                                     value={tipoNegocio}
                                     onChange={(e) => setTipoNegocio(e.target.value as TipoNegocio)}
                                 >
-                                    {BUSINESS_TYPE_OPTIONS.map((option) => (
+                                    {TIPO_NEGOCIO_OPTIONS.map((option) => (
                                         <option key={option.value} value={option.value}>
                                             {option.label}
                                         </option>
