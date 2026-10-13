@@ -10,6 +10,7 @@ const AdminDashboardPage = lazy(() => import('../pages/dashboard/AdminDashboardP
 const EmpresasPage = lazy(() => import('../pages/empresas/EmpresasPage'));
 const EmpresaDetailPage = lazy(() => import('../pages/empresas/EmpresaDetailPage'));
 const SaasPlansPage = lazy(() => import('../pages/saas/SaasPlansPage'));
+const BusinessCategoriesPage = lazy(() => import('../pages/categorias-negocio/BusinessCategoriesPage'));
 const OnboardingPage = lazy(() => import('../pages/onboarding/OnboardingPage'));
 const HelpTicketsPage = lazy(() => import('../pages/help/HelpTicketsPage'));
 const NotificationsPage = lazy(() => import('../pages/notifications/NotificationsPage'));
@@ -44,6 +45,7 @@ export default function AppRouter() {
                         <Route path="/empresas" element={<EmpresasPage />} />
                         <Route path="/empresas/:id" element={<EmpresaDetailPage />} />
                         <Route path="/planes-precios" element={<SaasPlansPage />} />
+                        <Route path="/categorias-negocio" element={<BusinessCategoriesPage />} />
                         <Route path="/onboarding" element={<OnboardingPage />} />
                         <Route path="/ayuda" element={<HelpTicketsPage />} />
                         <Route path="/notificaciones" element={<NotificationsPage />} />

@@ -8,6 +8,7 @@ const menuItems = [
     { to: '/dashboard', icon: 'space_dashboard', label: 'Inicio' },
     { to: '/empresas', icon: 'business', label: 'Empresas' },
     { to: '/planes-precios', icon: 'sell', label: 'Planes y precios' },
+    { to: '/categorias-negocio', icon: 'category', label: 'Categorias negocio' },
     { to: '/onboarding', icon: 'how_to_reg', label: 'Onboarding' },
     { to: '/ayuda', icon: 'help', label: 'Ayuda' },
     { to: '/notificaciones', icon: 'notifications', label: 'Notificaciones' },

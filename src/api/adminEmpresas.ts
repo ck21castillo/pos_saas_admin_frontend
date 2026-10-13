@@ -25,14 +25,7 @@ export type TipoNegocio =
   | 'GENERAL'
   | 'DROGUERIA'
   | 'TIENDA_MINIMARKET'
-  | 'TECNOLOGIA_SERVICIO_TECNICO'
-  | 'FERRETERIA'
-  | 'MISCELANEA_PAPELERIA'
-  | 'COLMENA'
-  | 'ROPA_CALZADO'
-  | 'COSMETICA_BELLEZA'
-  | 'REPUESTOS_ACCESORIOS'
-  | 'TIENDA_MASCOTAS';
+  | 'TECNOLOGIA_SERVICIO_TECNICO';
 
 export type TipoNegocioOption = {
   value: TipoNegocio;
@@ -61,46 +54,22 @@ export const TIPO_NEGOCIO_OPTIONS: TipoNegocioOption[] = [
     label: 'Tecnología y servicio técnico',
     help: 'Plantilla para venta de tecnologia, recepcion de equipos y servicios tecnicos.',
   },
-  {
-    value: 'FERRETERIA',
-    label: 'Ferretería',
-    help: 'Plantilla para ferreterias y negocios con referencias, medidas y accesorios.',
-  },
-  {
-    value: 'MISCELANEA_PAPELERIA',
-    label: 'Miscelánea y papelería',
-    help: 'Plantilla para papelerias, miscelaneas y venta de articulos variados.',
-  },
-  {
-    value: 'COLMENA',
-    label: 'Colmena',
-    help: 'Plantilla para operacion tipo colmena.',
-  },
-  {
-    value: 'ROPA_CALZADO',
-    label: 'Tienda de ropa y calzado',
-    help: 'Plantilla para ropa, calzado, variantes y referencias por estilo.',
-  },
-  {
-    value: 'COSMETICA_BELLEZA',
-    label: 'Cosmética / belleza',
-    help: 'Plantilla para cosmetica, belleza y productos de cuidado personal.',
-  },
-  {
-    value: 'REPUESTOS_ACCESORIOS',
-    label: 'Repuestos y accesorios',
-    help: 'Plantilla para repuestos, accesorios y compatibilidades por referencia.',
-  },
-  {
-    value: 'TIENDA_MASCOTAS',
-    label: 'Tienda de mascotas',
-    help: 'Plantilla para alimento, accesorios y productos para mascotas.',
-  },
 ];
 
 export const TIPO_NEGOCIO_LABELS: Record<TipoNegocio, string> = Object.fromEntries(
   TIPO_NEGOCIO_OPTIONS.map((option) => [option.value, option.label])
 ) as Record<TipoNegocio, string>;
+
+export type EmpresaCategoriaNegocio = {
+  codigo: string;
+  nombre: string;
+  descripcion?: string | null;
+  perfil_operativo: TipoNegocio;
+  activo: boolean;
+  visible_publico: boolean;
+  orden: number;
+};
+
 export type CodigoCapacidad = 'LOTES_VENCIMIENTOS' | 'PRODUCTOS_PRESENTACION' | 'PRODUCTOS_PESO';
 
 export type EmpresaCapacidadDetalle = {
@@ -109,6 +78,8 @@ export type EmpresaCapacidadDetalle = {
   descripcion?: string | null;
   estado: number;
   enabled: boolean;
+  gestion?: 'EMPRESA' | 'SAAS';
+  editable_por_empresa?: boolean;
 };
 
 
@@ -129,6 +100,8 @@ export type EmpresaConfiguracionNegocio = {
   id_empresa: number;
   nombre: string;
   tipo_negocio: TipoNegocio;
+  categoria_negocio?: string | null;
+  categorias_disponibles?: EmpresaCategoriaNegocio[];
   capacidades: Record<string, boolean>;
   capacidades_detalle: EmpresaCapacidadDetalle[];
   tenant?: EmpresaTenantMapping | null;
@@ -151,7 +124,7 @@ export async function getEmpresaConfiguracionNegocio(idEmpresa: number) {
 
 export async function saveEmpresaConfiguracionNegocio(
   idEmpresa: number,
-  payload: { tipo_negocio: TipoNegocio; capacidades: Record<string, boolean> }
+  payload: { categoria_negocio: string; capacidades: Record<string, boolean> }
 ) {
   const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/configuracion-negocio`, payload);
   return data as EmpresaConfiguracionNegocio;
@@ -266,7 +239,16 @@ export async function saveEmpresaModulos(idEmpresa: number, items: Array<{ id_mo
   return data as { ok: boolean; id_empresa: number; saved: number; sync?: SyncResult };
 }
 
-export type EmpresaPermisoItem = { id_permiso: number; codigo: string; descripcion: string; enabled: boolean };
+export type EmpresaPermisoItem = {
+  id_permiso: number;
+  codigo: string;
+  descripcion: string;
+  enabled: boolean;
+  grupo_ui?: string | null;
+  grupo_ui_nombre?: string | null;
+  orden_ui?: number | string | null;
+  visible_ui?: boolean | number | string | null;
+};
 
 export async function getEmpresaPermisos(idEmpresa: number) {
   const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/permisos`);
