@@ -13,175 +13,29 @@ import {
     downloadInventarioInicialTemplate,
     previewInventarioInicialImport,
     confirmInventarioInicialImport,
-    TIPO_NEGOCIO_OPTIONS,
     type EmpresaConfiguracionNegocio,
     type EmpresaCapacidadDetalle,
     type EmpresaModuloItem,
     type EmpresaPermisoItem,
-    type TipoNegocio,
     type EmpresaUsuarioItem,
     type InventarioImportPreview,
 } from '../../api/adminEmpresas';
 import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
 import { isSyncPending } from '../../api/adminSaas';
 import SaasSubscriptionPanel from './SaasSubscriptionPanel';
+import {
+    EXTRA_PERMISSION_GROUPS_KEY,
+    buildPermissionGroups,
+    findPermissionGroupForModule,
+    unmatchedPermissionGroups,
+    type PermissionGroup,
+} from './permissionCatalog';
+import { isBusinessCapabilityEditable } from './businessCapabilities';
 
 type ModRow = EmpresaModuloItem;
 type PermRow = EmpresaPermisoItem;
 type UserRow = EmpresaUsuarioItem;
 type CapRow = EmpresaCapacidadDetalle;
-
-const SAAS_MANAGED_CAPABILITY_CODES = new Set([
-    'SOPORTE_TECNICO',
-    'PRECONTABILIDAD',
-    'EXPORTACION_CONTABLE',
-    'FACTURACION_ELECTRONICA',
-    'NOTAS_FISCALES',
-]);
-
-/** ===========================
- *  1) Especificación de módulos/permisos "USADOS" (los del POS)
- *  ===========================
- *  Esto es lo que define qué permisos se muestran en el panel admin.
- *  Si un permiso NO está aquí, por defecto NO lo mostramos (para mantener limpio).
- */
-type ModSpec = {
-    key: string;
-    label: string;
-    icon?: string;
-    perms: string[];
-    capabilityCode?: string;
-};
-
-const MODULE_SPECS: ModSpec[] = [
-    {
-        key: 'pos',
-        label: 'POS',
-        icon: 'home',
-        perms: ['VENTA__CREAR', 'VENTA__VER', 'VENTA__CANCELAR', 'WHATSAPP__POS_ENVIAR_COMPROBANTE'],
-    },
-    {
-        key: 'clientes',
-        label: 'Clientes',
-        icon: 'groups',
-        perms: ['CLIENTES__VER', 'CLIENTES__EDITAR'],
-    },
-    {
-        key: 'deudores',
-        label: 'Deudores',
-        icon: 'account_balance_wallet',
-        perms: ['DEUDORES__VER', 'DEUDORES__ABONAR', 'DEUDORES__DETALLE_VER', 'DEUDORES__PAGAR'],
-    },
-    {
-        key: 'productos',
-        label: 'Productos',
-        icon: 'inventory_2',
-        perms: ['PRODUCTOS__VER', 'PRODUCTOS__EDITAR'],
-    },
-    {
-        key: 'categorias',
-        label: 'Categorías',
-        icon: 'category',
-        perms: ['CATEGORIAS__VER', 'CATEGORIAS__EDITAR'],
-    },
-    {
-        key: 'proveedores',
-        label: 'Proveedores',
-        icon: 'local_shipping',
-        perms: ['PROVEEDORES__VER', 'PROVEEDORES__EDITAR'],
-    },
-    {
-        key: 'inventario',
-        label: 'Inventario',
-        icon: 'layers',
-        perms: ['INVENTARIO__VER', 'INVENTARIO__LOTE_VER', 'INVENTARIO__MOV_VER', 'INVENTARIO__AJUSTAR', 'INVENTARIO__EDITAR', 'PRODUCTOS__EDITAR'],
-    },
-    {
-        key: 'ventas',
-        label: 'Ventas',
-        icon: 'shopping_cart',
-        perms: ['VENTA__VER', 'VENTA__CANCELAR', 'DEVOLUCIONES__CREAR', 'DEVOLUCIONES__VER'],
-    },
-    {
-        key: 'caja',
-        label: 'Caja',
-        icon: 'point_of_sale',
-        perms: ['CAJA__VER', 'CAJA__ABRIR', 'CAJA__MOVIMIENTO', 'CAJA__CERRAR'],
-    },
-    {
-        key: 'cierres',
-        label: 'Cierres',
-        icon: 'receipt_long',
-        perms: ['CIERRE__VER', 'CIERRE__EXPORTAR', 'CIERRE__DETALLE_VER'],
-    },
-    {
-        key: 'cortes',
-        label: 'Cortes',
-        icon: 'content_cut',
-        perms: ['CORTES__VER', 'CORTES__CREAR', 'CORTES__DETALLE_VER'],
-    },
-    {
-        key: 'compras',
-        label: 'Compras',
-        icon: 'shopping_bag',
-        perms: ['COMPRAS__VER', 'COMPRAS__CREAR', 'COMPRAS__EDITAR', 'COMPRAS__CONFIRMAR', 'COMPRAS__ANULAR'],
-    },
-    {
-        key: 'bancos',
-        label: 'Bancos',
-        icon: 'account_balance',
-        perms: ['BANCOS__VER', 'BANCOS__MOVIMIENTO', 'BANCOS__CUENTA_CREAR', 'BANCOS__CUENTA_EDITAR', 'BANCOS__CUENTA_DESACTIVAR']
-    },
-    {
-        key: 'gastos',
-        label: 'Gastos',
-        icon: 'request_quote',
-        perms: [
-            'GASTOS__VER',
-            'GASTOS__CREAR',
-            'GASTOS__EDITAR',
-            'GASTOS__ANULAR',
-            'GASTOS__EXPORTAR',
-            'GASTOS__CATEGORIAS_EDITAR',
-        ],
-    },
-    {
-        key: 'precontabilidad',
-        label: 'Precontabilidad',
-        icon: 'account_balance',
-        perms: ['PRECONTABILIDAD__VER', 'PRECONTABILIDAD__CONFIGURAR'],
-        capabilityCode: 'PRECONTABILIDAD',
-    },
-    {
-        key: 'soporte',
-        label: 'Soporte',
-        icon: 'support_agent',
-        perms: ['SOPORTE__VER', 'SOPORTE__CREAR', 'SOPORTE__EDITAR', 'SOPORTE__ENTREGAR', 'SOPORTE__EXPORTAR', 'SOPORTE__ENVIAR', 'WHATSAPP__SOPORTE_ENVIAR_COMPROBANTE'],
-        capabilityCode: 'SOPORTE_TECNICO',
-    },
-];
-
-/** Permisos legacy/no usados que NO queremos mostrar en el panel admin (por limpieza) */
-const UI_HIDDEN_PERMS = new Set<string>([
-    // legacy singular
-    'CLIENTE__VER', 'CLIENTE__EDITAR',
-    'PRODUCTO__VER', 'PRODUCTO__EDITAR',
-    'PROVEEDOR__VER', 'PROVEEDOR__EDITAR',
-    'DEUDA__VER', 'DEUDA__ABONAR',
-
-    // no cableados aún
-    'POS__OPERAR', 'POS__COMPROBANTE_EMAIL', 'POS__FACTURA_ELECTRONICA',
-    'REPORTES__VER', 'REPORTE__VER',
-    'CONTABLES__VER', 'CONTABLES__EXPORTAR',
-    'VENTA__DETALLE',
-    'INVENTARIO__MOV_EXPORTAR', 'INVENTARIO__LOTE_EDITAR',
-
-    // admin/rbac granular no expuesto aquí
-    'ADMIN__MODULOS',
-    'RBAC__ROLE_CREATE', 'RBAC__ROLE_EDIT', 'RBAC__ROLE_DELETE',
-    'RBAC__PERM_VIEW', 'RBAC__PERM_EDIT',
-    'RBAC__USER_PERMS_VIEW', 'RBAC__USER_PERMS_EDIT',
-]);
 
 const RETIRED_MODULE_ROUTES = new Set(['/reportes-contables', 'reportes-contables']);
 const SAAS_MODULE_GATES: Record<string, { capabilityCode: string; label: string }> = {
@@ -220,16 +74,6 @@ function moduleGateKey(module: ModRow): string | null {
     if (route.includes('soporte') || name.includes('soporte')) return 'soporte';
     if (route.includes('precontabilidad') || name.includes('precontabilidad')) return 'precontabilidad';
     return null;
-}
-
-function moduleSpecForModule(module: ModRow): ModSpec | null {
-    const route = normSearch(module.ruta);
-    const name = normSearch(module.nombre);
-    return MODULE_SPECS.find((spec) => {
-        const key = normSearch(spec.key);
-        const label = normSearch(spec.label);
-        return route.includes(key) || name === label || name.includes(label);
-    }) ?? null;
 }
 
 function permissionKind(code: string): { label: string; className: string } {
@@ -271,6 +115,52 @@ function responseData(error: unknown): { error?: unknown; message?: unknown } | 
     return typeof data === 'object' && data !== null ? data as { error?: unknown; message?: unknown } : null;
 }
 
+function apiErrorMessage(error: unknown, fallback: string): string {
+    const data = responseData(error);
+    return String(data?.message ?? data?.error ?? fallback);
+}
+
+function businessConfigWarningMessage(error: unknown): string | null {
+    const message = apiErrorMessage(error, '');
+    if (message.includes('CAPACIDAD_LOTES_EN_USO')) {
+        return 'No se puede desactivar Lotes y vencimientos porque esta empresa tiene productos configurados por lote o existencias por lote.';
+    }
+    if (message.includes('CAPACIDAD_PESO_EN_USO')) {
+        return 'No puedes desactivar Productos por peso porque esta empresa tiene productos configurados por peso.';
+    }
+    if (message.includes('CAPACIDAD_PRESENTACIONES_EN_USO')) {
+        return 'No se puede desactivar Productos por presentación porque esta empresa tiene presentaciones activas asociadas a sus productos.';
+    }
+    if (message.includes('CAPACIDAD_SERIALES_EN_USO')) {
+        return 'No se puede desactivar Seriales e IMEI en ventas porque esta empresa tiene productos que los requieren o seriales ya registrados en ventas.';
+    }
+    if (
+        message.includes('CAPACIDAD_LOTES_TENANT_NO_DISPONIBLE') ||
+        message.includes('CAPACIDAD_LOTES_VALIDACION_TENANT_FALLIDA')
+    ) {
+        return 'No se pudo verificar el uso de lotes en el tenant. No se realizaron cambios.';
+    }
+    if (
+        message.includes('CAPACIDAD_PESO_TENANT_NO_DISPONIBLE') ||
+        message.includes('CAPACIDAD_PESO_VALIDACION_TENANT_FALLIDA')
+    ) {
+        return 'No se pudo verificar el uso de productos por peso en el tenant. No se realizaron cambios.';
+    }
+    if (
+        message.includes('CAPACIDAD_PRESENTACIONES_TENANT_NO_DISPONIBLE') ||
+        message.includes('CAPACIDAD_PRESENTACIONES_VALIDACION_TENANT_FALLIDA')
+    ) {
+        return 'No se pudo verificar el uso de presentaciones en el tenant. No se realizaron cambios.';
+    }
+    if (
+        message.includes('CAPACIDAD_SERIALES_TENANT_NO_DISPONIBLE') ||
+        message.includes('CAPACIDAD_SERIALES_VALIDACION_TENANT_FALLIDA')
+    ) {
+        return 'No se pudo verificar el uso de seriales e IMEI en el tenant. No se realizaron cambios.';
+    }
+    return null;
+}
+
 function isSaasCapabilityValidation(error: unknown): boolean {
     const data = responseData(error);
     const message = String(data?.message ?? data?.error ?? '');
@@ -293,7 +183,7 @@ export default function EmpresaDetailPage() {
     const [inventoryImportPreview, setInventoryImportPreview] = useState<InventarioImportPreview | null>(null);
     const [inventoryImportChecking, setInventoryImportChecking] = useState(false);
     const [inventoryImportConfirming, setInventoryImportConfirming] = useState(false);
-    const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>('GENERAL');
+    const [categoriaNegocio, setCategoriaNegocio] = useState('');
     const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
     const [permQ, setPermQ] = useState('');
@@ -318,7 +208,7 @@ export default function EmpresaDetailPage() {
             setUsers(u.items ?? []);
             setBusinessConfig(c);
             setTenantHealth(null);
-            setTipoNegocio(c.tipo_negocio ?? 'GENERAL');
+            setCategoriaNegocio(c.categoria_negocio ?? '');
             setCapabilityValues(c.capacidades ?? {});
         } finally {
             setLoading(false);
@@ -331,12 +221,6 @@ export default function EmpresaDetailPage() {
      *  2) Índices y sets útiles
      *  ===========================
      */
-    const permsByCode = useMemo(() => {
-        const map = new Map<string, PermRow>();
-        for (const p of perms) map.set(normCode(p.codigo), p);
-        return map;
-    }, [perms]);
-
     const effectiveCapabilities = useMemo(() => {
         const map = new Map<string, boolean>();
         for (const [code, enabled] of Object.entries(businessConfig?.capacidades ?? {})) {
@@ -368,27 +252,21 @@ export default function EmpresaDetailPage() {
         return rule ? !isCapabilityEffective(rule.capabilityCode) : false;
     }, [isCapabilityEffective]);
 
-    const permissionEnabledForDisplay = useCallback((code: string): boolean => {
-        return Boolean(permsByCode.get(normCode(code))?.enabled);
-    }, [permsByCode]);
-
-    const usedPermSet = useMemo(() => {
-        const all = MODULE_SPECS.flatMap(m => m.perms).map(normCode);
-        const set = new Set(all);
-        // quitar ocultos/legacy
-        for (const h of UI_HIDDEN_PERMS) set.delete(h);
-        return set;
-    }, []);
+    const visiblePermissionGroups = useMemo(() => buildPermissionGroups(perms), [perms]);
+    const visibleMods = useMemo(() => mods.filter((m) => !isRetiredReportsModule(m)), [mods]);
+    const extraPermissionGroups = useMemo(
+        () => unmatchedPermissionGroups(visibleMods, visiblePermissionGroups),
+        [visibleMods, visiblePermissionGroups]
+    );
 
     const filteredMods = useMemo(() => {
         const s = q.trim().toLowerCase();
-        const visible = mods.filter((m) => !isRetiredReportsModule(m));
-        if (!s) return visible;
-        return visible.filter(m =>
+        if (!s) return visibleMods;
+        return visibleMods.filter(m =>
             String(m.nombre ?? '').toLowerCase().includes(s) ||
             String(m.ruta ?? '').toLowerCase().includes(s)
         );
-    }, [mods, q]);
+    }, [visibleMods, q]);
 
     const filteredUsers = useMemo(() => {
         const s = q.trim().toLowerCase();
@@ -403,9 +281,7 @@ export default function EmpresaDetailPage() {
     }, [users, q]);
 
     const filteredCapabilities = useMemo(() => {
-        const rows = (businessConfig?.capacidades_detalle ?? []).filter(
-            (cap) => !SAAS_MANAGED_CAPABILITY_CODES.has(normCode(cap.codigo_capacidad))
-        );
+        const rows = (businessConfig?.capacidades_detalle ?? []).filter(isBusinessCapabilityEditable);
         const s = q.trim().toLowerCase();
         if (!s) return rows;
         return rows.filter((cap: CapRow) =>
@@ -446,7 +322,7 @@ export default function EmpresaDetailPage() {
     const savePerms = async () => {
         const items = perms.map(p => ({
             id_permiso: p.id_permiso,
-            enabled: !UI_HIDDEN_PERMS.has(normCode(p.codigo)) && !!p.enabled,
+            enabled: !!p.enabled,
         }));
         try {
             const r = await saveEmpresaPermisos(idEmpresa, items);
@@ -458,16 +334,13 @@ export default function EmpresaDetailPage() {
             setOperationalNotice(null);
             await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
         } catch (error: unknown) {
-            if (isSaasCapabilityValidation(error)) {
-                await Swal.fire({
-                    icon: 'warning',
-                    title: 'Capacidad SaaS requerida',
-                    text: 'Este recurso requiere una capacidad que no esta incluida en el plan o la suscripcion de la empresa.',
-                    confirmButtonText: 'Entendido',
-                });
-                return;
-            }
-            await Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudieron guardar los permisos.' });
+            await load();
+            await Swal.fire({
+                icon: isSaasCapabilityValidation(error) ? 'warning' : 'error',
+                title: 'No se pudieron guardar los permisos',
+                text: apiErrorMessage(error, 'No se pudieron guardar los permisos.'),
+                confirmButtonText: 'Entendido',
+            });
         }
     };
 
@@ -499,18 +372,38 @@ export default function EmpresaDetailPage() {
         }
     };
     const saveBusinessConfig = async () => {
-        const operationalCapabilities = Object.fromEntries(
-            Object.entries(capabilityValues).filter(([code]) => !SAAS_MANAGED_CAPABILITY_CODES.has(normCode(code)))
+        const editableCodes = new Set(
+            (businessConfig?.capacidades_detalle ?? [])
+                .filter(isBusinessCapabilityEditable)
+                .map((capability) => normCode(capability.codigo_capacidad))
         );
-        const r = await saveEmpresaConfiguracionNegocio(idEmpresa, {
-            tipo_negocio: tipoNegocio,
-            capacidades: operationalCapabilities,
-        });
-        setBusinessConfig(r);
-        setTipoNegocio(r.tipo_negocio ?? 'GENERAL');
-        setCapabilityValues(r.capacidades ?? {});
-        await load();
-        await Swal.fire({ icon: 'success', title: 'Guardado', text: 'Configuración de negocio actualizada' });
+        const editableCapabilities = Object.fromEntries(
+            Object.entries(capabilityValues).filter(([code]) => editableCodes.has(normCode(code)))
+        );
+        try {
+            const r = await saveEmpresaConfiguracionNegocio(idEmpresa, {
+                categoria_negocio: categoriaNegocio,
+                capacidades: editableCapabilities,
+            });
+            setBusinessConfig(r);
+            setCategoriaNegocio(r.categoria_negocio ?? '');
+            setCapabilityValues(r.capacidades ?? {});
+            await load();
+            await Swal.fire({ icon: 'success', title: 'Guardado', text: 'Configuración de negocio actualizada' });
+        } catch (error: unknown) {
+            try {
+                await load();
+            } catch {
+                void 0;
+            }
+            const warningMessage = businessConfigWarningMessage(error);
+            await Swal.fire({
+                icon: warningMessage ? 'warning' : 'error',
+                title: warningMessage ? 'No se pudo guardar' : 'Error',
+                text: warningMessage ?? apiErrorMessage(error, 'No se pudo guardar la configuración de negocio.'),
+                confirmButtonText: 'Entendido',
+            });
+        }
     };
 
     const downloadTemplate = async () => {
@@ -639,52 +532,54 @@ export default function EmpresaDetailPage() {
      *  3) Permisos por módulo (solo usados)
      *  ===========================
      */
-    const selectedModule = useMemo(() => {
-        if (!selectedModuleKey) return null;
-        return MODULE_SPECS.find(m => m.key === selectedModuleKey) ?? null;
-    }, [selectedModuleKey]);
+    const selectedPermissionGroups = useMemo<PermissionGroup[]>(() => {
+        if (!selectedModuleKey) return [];
+        if (selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY) return extraPermissionGroups;
+        const group = visiblePermissionGroups.find((item) => item.key === selectedModuleKey);
+        return group ? [group] : [];
+    }, [extraPermissionGroups, selectedModuleKey, visiblePermissionGroups]);
 
-    const selectedModuleRestricted = Boolean(
-        selectedModule?.capabilityCode && !isCapabilityEffective(selectedModule.capabilityCode)
-    );
+    const selectedPermissionTitle = selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY
+        ? 'Mas permisos'
+        : selectedPermissionGroups[0]?.label ?? 'Permisos';
+
+    const selectedGroupHasRestrictedPermissions = useMemo(() => {
+        return selectedPermissionGroups.some((group) =>
+            group.items.some((item) => isPermissionRestrictedByCapability(normCode(item.codigo)))
+        );
+    }, [isPermissionRestrictedByCapability, selectedPermissionGroups]);
 
     const modulePermRows = useMemo(() => {
         const s = permQ.trim().toLowerCase();
-        const codes = (selectedModule?.perms ?? [])
-            .map(normCode)
-            .filter(c => usedPermSet.has(c)); // solo usados
-
-        const rows = codes
-            .map(code => {
-                const row = permsByCode.get(code);
-                return { code, row };
-            })
-            // puede que el permiso esté en el spec pero aún no exista en BD
-            .filter(x => {
+        return selectedPermissionGroups
+            .flatMap((group) =>
+                group.items.map((row) => ({
+                    code: normCode(row.codigo),
+                    groupLabel: group.label,
+                    row,
+                }))
+            )
+            .filter(({ code, groupLabel, row }) => {
                 if (!s) return true;
-                const desc = x.row?.descripcion ?? '';
-                return x.code.toLowerCase().includes(s) || String(desc).toLowerCase().includes(s);
+                return code.toLowerCase().includes(s)
+                    || String(row.descripcion ?? '').toLowerCase().includes(s)
+                    || groupLabel.toLowerCase().includes(s);
             });
-
-        return rows;
-    }, [selectedModule, permQ, permsByCode, usedPermSet]);
-
-    const moduleMissingInDb = useMemo(() => {
-        return modulePermRows.filter(x => !x.row).map(x => x.code);
-    }, [modulePermRows]);
+    }, [permQ, selectedPermissionGroups]);
 
     const moduleStats = useMemo(() => {
-        const codes = (selectedModule?.perms ?? []).map(normCode).filter(c => usedPermSet.has(c));
-        const total = codes.length;
-        const enabled = codes.filter(c => permissionEnabledForDisplay(c)).length;
+        const total = selectedPermissionGroups.reduce((acc, group) => acc + group.items.length, 0);
+        const enabled = selectedPermissionGroups.reduce(
+            (acc, group) => acc + group.items.filter((item) => !!item.enabled).length,
+            0
+        );
         return { total, enabled };
-    }, [selectedModule, usedPermSet, permissionEnabledForDisplay]);
+    }, [selectedPermissionGroups]);
 
-    /** módulos list (con contadores) */
-    /** permisos no mapeados (opcional, para auditoría) */
-    const selectedBusinessTypeOption = useMemo(() => {
-        return TIPO_NEGOCIO_OPTIONS.find((opt) => opt.value === tipoNegocio) ?? TIPO_NEGOCIO_OPTIONS[0];
-    }, [tipoNegocio]);
+    const selectedBusinessCategory = useMemo(
+        () => (businessConfig?.categorias_disponibles ?? []).find((item) => item.codigo === categoriaNegocio) ?? null,
+        [businessConfig, categoriaNegocio]
+    );
 
     const tenant = businessConfig?.tenant ?? null;
 
@@ -741,9 +636,22 @@ export default function EmpresaDetailPage() {
                             Guardar configuración
                         </button>
                     ) : tab === 'modulos' ? (
-                        <button className="btn btn-primary btn-sm" onClick={saveMods} disabled={loading}>
-                            Guardar módulos
-                        </button>
+                        <>
+                            <button
+                                className="btn btn-outline-primary btn-sm"
+                                type="button"
+                                onClick={() => {
+                                    setPermQ('');
+                                    setSelectedModuleKey(EXTRA_PERMISSION_GROUPS_KEY);
+                                }}
+                                disabled={extraPermissionGroups.length === 0}
+                            >
+                                Más permisos
+                            </button>
+                            <button className="btn btn-primary btn-sm" onClick={saveMods} disabled={loading}>
+                                Guardar módulos
+                            </button>
+                        </>
                     ) : null}
                 </div>
             </div>
@@ -763,21 +671,30 @@ export default function EmpresaDetailPage() {
                     <div className="col-12 col-lg-5">
                         <div className="card">
                             <div className="card-body">
-                                <div className="fw-bold mb-2">Tipo de negocio</div>
+                                <div className="fw-bold mb-2">Categoría de negocio</div>
                                 <select
                                     className="form-select"
-                                    value={tipoNegocio}
-                                    onChange={(e) => setTipoNegocio(e.target.value as TipoNegocio)}
+                                    value={categoriaNegocio}
+                                    onChange={(e) => setCategoriaNegocio(e.target.value)}
                                 >
-                                    {TIPO_NEGOCIO_OPTIONS.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
+                                    <option value="" disabled>Selecciona una categoría</option>
+                                    {(businessConfig?.categorias_disponibles ?? []).map((category) => (
+                                        <option key={category.codigo} value={category.codigo} disabled={!category.activo}>
+                                            {category.nombre}
                                         </option>
                                     ))}
                                 </select>
 
                                 <div className="text-muted mt-2" style={{ fontSize: 12 }}>
-                                    {selectedBusinessTypeOption?.help}
+                                    {selectedBusinessCategory?.descripcion || 'La categoría define el perfil operativo de la empresa.'}
+                                </div>
+
+                                <div className="border-top pt-3 mt-3">
+                                    <div className="fw-bold mb-1">Perfil operativo</div>
+                                    <code>{selectedBusinessCategory?.perfil_operativo ?? businessConfig?.tipo_negocio ?? '-'}</code>
+                                    <div className="text-muted mt-1" style={{ fontSize: 12 }}>
+                                        Se deriva de la categoría elegida y no se configura por separado.
+                                    </div>
                                 </div>
 
                                 <div className="border-top pt-3 mt-3">
@@ -869,9 +786,9 @@ export default function EmpresaDetailPage() {
                             <div className="card-body">
                                 <div className="d-flex align-items-start justify-content-between gap-2 flex-wrap">
                                     <div>
-                                        <div className="fw-bold">Capacidades</div>
+                                        <div className="fw-bold">Capacidades operativas</div>
                                         <div className="text-muted" style={{ fontSize: 12 }}>
-                                            Activa o desactiva funciones especiales para esta empresa.
+                                            Solo se muestran las capacidades configurables por empresa. Las capacidades SaaS se administran desde Suscripcion.
                                         </div>
                                     </div>
                                 </div>
@@ -1092,7 +1009,7 @@ export default function EmpresaDetailPage() {
                                 const restricted = isModuleRestrictedByCapability(m);
                                 const gate = moduleGateKey(m);
                                 const gateLabel = gate ? SAAS_MODULE_GATES[gate]?.label : null;
-                                const spec = moduleSpecForModule(m);
+                                const permissionGroup = findPermissionGroupForModule(m, visiblePermissionGroups);
                                 return (
                                     <tr key={m.id_modulo}>
                                         <td>{m.id_modulo}</td>
@@ -1120,11 +1037,11 @@ export default function EmpresaDetailPage() {
                                             <button
                                                 type="button"
                                                 className="btn btn-outline-primary btn-sm"
-                                                disabled={!spec}
+                                                disabled={!permissionGroup}
                                                 onClick={() => {
-                                                    if (!spec) return;
+                                                    if (!permissionGroup) return;
                                                     setPermQ('');
-                                                    setSelectedModuleKey(spec.key);
+                                                    setSelectedModuleKey(permissionGroup.key);
                                                 }}
                                             >
                                                 Ver permisos
@@ -1181,17 +1098,17 @@ export default function EmpresaDetailPage() {
                 </div>
             )}
 
-            {selectedModule && (
+            {selectedModuleKey && (
                 <>
                     <div className="modal d-block" tabIndex={-1} role="dialog" aria-modal="true">
                         <div className="modal-dialog modal-lg modal-dialog-scrollable">
                             <div className="modal-content">
                                 <div className="modal-header">
                                     <div>
-                                        <h5 className="modal-title mb-0">Permisos de {selectedModule.label}</h5>
+                                        <h5 className="modal-title mb-0">Permisos de {selectedPermissionTitle}</h5>
                                         <div className="text-muted" style={{ fontSize: 12 }}>
                                             {moduleStats.enabled}/{moduleStats.total} habilitados
-                                            {selectedModuleRestricted ? ' - techo SaaS inactivo' : ''}
+                                            {selectedGroupHasRestrictedPermissions ? ' - techo SaaS inactivo' : ''}
                                         </div>
                                     </div>
                                     <button
@@ -1202,7 +1119,7 @@ export default function EmpresaDetailPage() {
                                     />
                                 </div>
                                 <div className="modal-body">
-                                    {selectedModuleRestricted && (
+                                    {selectedGroupHasRestrictedPermissions && (
                                         <div className="alert alert-warning py-2">
                                             <small>
                                                 La capacidad SaaS requerida esta inactiva. Puedes guardar restricciones locales, pero el backend validara cualquier alta fuera del techo comercial.
@@ -1210,14 +1127,10 @@ export default function EmpresaDetailPage() {
                                         </div>
                                     )}
 
-                                    {moduleMissingInDb.length > 0 && (
-                                        <div className="alert alert-warning py-2">
+                                    {selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY && extraPermissionGroups.length === 0 && (
+                                        <div className="alert alert-info py-2">
                                             <small>
-                                                Aviso: Hay permisos definidos en el modulo que no existen en la BD:
-                                                <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                                                    {' '}
-                                                    {moduleMissingInDb.join(', ')}
-                                                </span>
+                                                No hay permisos adicionales disponibles fuera de los módulos visibles.
                                             </small>
                                         </div>
                                     )}
@@ -1246,7 +1159,7 @@ export default function EmpresaDetailPage() {
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    modulePermRows.map(({ code, row }) => {
+                                                    modulePermRows.map(({ code, groupLabel, row }) => {
                                                         const restricted = isPermissionRestrictedByCapability(code);
                                                         const kind = permissionKind(code);
                                                         return (
@@ -1256,9 +1169,14 @@ export default function EmpresaDetailPage() {
                                                                     <span className={`badge ${kind.className} mt-1`}>
                                                                         {kind.label}
                                                                     </span>
+                                                                    {selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY && (
+                                                                        <span className="badge text-bg-secondary mt-1 ms-1">
+                                                                            {groupLabel}
+                                                                        </span>
+                                                                    )}
                                                                 </td>
                                                                 <td style={{ fontSize: 12, opacity: 0.85 }}>
-                                                                    {row?.descripcion ?? <span className="text-muted">No existe en BD</span>}
+                                                                    {row.descripcion || '-'}
                                                                     {restricted && (
                                                                         <div className="text-muted mt-1">
                                                                             Bloqueado por capacidad SaaS inactiva.
@@ -1269,12 +1187,10 @@ export default function EmpresaDetailPage() {
                                                                     <input
                                                                         type="checkbox"
                                                                         className="form-check-input"
-                                                                        checked={!!row?.enabled}
-                                                                        disabled={!row}
+                                                                        checked={!!row.enabled}
                                                                         onChange={(e) => {
-                                                                            if (!row) return;
                                                                             const v = e.target.checked;
-                                                                            setPerms(prev => prev.map(x => normCode(x.codigo) === code ? { ...x, enabled: v } : x));
+                                                                            setPerms(prev => prev.map(x => x.id_permiso === row.id_permiso ? { ...x, enabled: v } : x));
                                                                         }}
                                                                     />
                                                                 </td>
