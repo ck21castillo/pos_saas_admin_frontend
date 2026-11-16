@@ -49,11 +49,45 @@ function searchKey(value: unknown): string {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+function searchTokens(value: unknown): string[] {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.map((token) => (token.length > 3 && token.endsWith('s') ? token.slice(0, -1) : token)) ?? [];
+}
+
 function moduleSearchText(module: EmpresaModuloItem): string {
   return [module.nombre, module.ruta]
     .map(searchKey)
     .filter(Boolean)
     .join(' ');
+}
+
+function permissionGroupMatchScore(module: EmpresaModuloItem, group: PermissionGroup): number {
+  const groupKey = searchKey(group.key);
+  const groupLabel = searchKey(group.label);
+  const routeLeaf = searchKey(String(module.ruta ?? '').split('/').filter(Boolean).pop() ?? '');
+  const nameText = searchKey(module.nombre);
+  const moduleText = moduleSearchText(module);
+  const moduleTokens = new Set([...searchTokens(module.nombre), ...searchTokens(module.ruta)]);
+  const groupTokens = searchTokens(group.key);
+
+  if (!groupKey) return 0;
+  const matchingTokens = groupTokens.filter((token) => moduleTokens.has(token));
+  if (groupTokens.length > 0 && matchingTokens.length === groupTokens.length) {
+    return 10000 + groupTokens.length * 100 + groupKey.length;
+  }
+  if (routeLeaf === groupKey) return 7000 + groupKey.length;
+  if (routeLeaf.startsWith(groupKey)) return 6000 + groupKey.length;
+  if (groupKey.startsWith(routeLeaf) && routeLeaf) return 5000 + routeLeaf.length;
+  if (nameText === groupKey) return 4000 + groupKey.length;
+  if (nameText.startsWith(groupKey)) return 3000 + groupKey.length;
+  if (nameText.includes(groupKey)) return 2000 + groupKey.length;
+  if (moduleText.includes(groupKey)) return 1000 + groupKey.length;
+  if (groupLabel && (nameText.includes(groupLabel) || groupLabel.includes(nameText))) return 500 + groupLabel.length;
+  return 0;
 }
 
 export function buildPermissionGroups(items: EmpresaPermisoItem[]): PermissionGroup[] {
@@ -93,19 +127,11 @@ export function findPermissionGroupForModule(
   module: EmpresaModuloItem,
   groups: PermissionGroup[],
 ): PermissionGroup | null {
-  const moduleText = moduleSearchText(module);
-  const routeLeaf = searchKey(String(module.ruta ?? '').split('/').filter(Boolean).pop() ?? '');
-  const nameText = searchKey(module.nombre);
-
-  return groups.find((group) => {
-    const groupKey = searchKey(group.key);
-    const groupLabel = searchKey(group.label);
-    if (!groupKey) return false;
-    return moduleText.includes(groupKey)
-      || (routeLeaf !== '' && groupKey.includes(routeLeaf))
-      || (nameText !== '' && groupLabel.includes(nameText))
-      || (groupLabel !== '' && nameText.includes(groupLabel));
-  }) ?? null;
+  return groups
+    .map((group) => ({ group, score: permissionGroupMatchScore(module, group) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || a.group.order - b.group.order || a.group.key.localeCompare(b.group.key))
+    .at(0)?.group ?? null;
 }
 
 export function unmatchedPermissionGroups(

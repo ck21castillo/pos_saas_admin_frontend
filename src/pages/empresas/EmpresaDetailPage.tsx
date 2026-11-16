@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import PageLayout from '../../layout/PageLayout';
 import {
     getEmpresaModulos,
-    saveEmpresaModulos,
     getEmpresaPermisos,
-    saveEmpresaPermisos,
     getEmpresaUsuarios,
     getEmpresaConfiguracionNegocio,
     saveEmpresaConfiguracionNegocio,
@@ -21,15 +19,8 @@ import {
     type InventarioImportPreview,
 } from '../../api/adminEmpresas';
 import { getTenantHealth, type TenantHealthItem } from '../../api/adminTenantHealth';
-import { isSyncPending } from '../../api/adminSaas';
 import SaasSubscriptionPanel from './SaasSubscriptionPanel';
-import {
-    EXTRA_PERMISSION_GROUPS_KEY,
-    buildPermissionGroups,
-    findPermissionGroupForModule,
-    unmatchedPermissionGroups,
-    type PermissionGroup,
-} from './permissionCatalog';
+import CommercialAccessPanel from './CommercialAccessPanel';
 import { isBusinessCapabilityEditable } from './businessCapabilities';
 
 type ModRow = EmpresaModuloItem;
@@ -38,21 +29,6 @@ type UserRow = EmpresaUsuarioItem;
 type CapRow = EmpresaCapacidadDetalle;
 
 const RETIRED_MODULE_ROUTES = new Set(['/reportes-contables', 'reportes-contables']);
-const SAAS_MODULE_GATES: Record<string, { capabilityCode: string; label: string }> = {
-    soporte: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    precontabilidad: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
-};
-const SAAS_PERMISSION_GATES: Record<string, { capabilityCode: string; label: string }> = {
-    SOPORTE__VER: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    SOPORTE__CREAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    SOPORTE__EDITAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    SOPORTE__ENTREGAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    SOPORTE__EXPORTAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    SOPORTE__ENVIAR: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    WHATSAPP__SOPORTE_ENVIAR_COMPROBANTE: { capabilityCode: 'SOPORTE_TECNICO', label: 'Soporte tecnico' },
-    PRECONTABILIDAD__VER: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
-    PRECONTABILIDAD__CONFIGURAR: { capabilityCode: 'PRECONTABILIDAD', label: 'Precontabilidad' },
-};
 
 function normCode(x: unknown): string {
     return String(x ?? '').trim().toUpperCase();
@@ -68,26 +44,6 @@ function isRetiredReportsModule(module: ModRow): boolean {
     return RETIRED_MODULE_ROUTES.has(route) || name === 'reportes contables';
 }
 
-function moduleGateKey(module: ModRow): string | null {
-    const route = normSearch(module.ruta);
-    const name = normSearch(module.nombre);
-    if (route.includes('soporte') || name.includes('soporte')) return 'soporte';
-    if (route.includes('precontabilidad') || name.includes('precontabilidad')) return 'precontabilidad';
-    return null;
-}
-
-function permissionKind(code: string): { label: string; className: string } {
-    if (code === 'PRECONTABILIDAD__CONFIGURAR') {
-        return { label: 'Configuracion', className: 'text-bg-warning' };
-    }
-    if (code === 'PRECONTABILIDAD__VER') {
-        return { label: 'Consulta', className: 'text-bg-info' };
-    }
-    if (code.endsWith('__CONFIGURAR') || code.endsWith('__EDITAR') || code.endsWith('__CREAR')) {
-        return { label: 'Gestion', className: 'text-bg-warning' };
-    }
-    return { label: 'Consulta', className: 'text-bg-light border text-dark' };
-}
 
 function dateText(value?: string | null): string {
     if (!value) return '-';
@@ -161,17 +117,11 @@ function businessConfigWarningMessage(error: unknown): string | null {
     return null;
 }
 
-function isSaasCapabilityValidation(error: unknown): boolean {
-    const data = responseData(error);
-    const message = String(data?.message ?? data?.error ?? '');
-    return message.includes('CAPACIDAD_SAAS_REQUERIDA');
-}
-
 export default function EmpresaDetailPage() {
     const { id } = useParams();
     const idEmpresa = Number(id || 0);
 
-    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'usuarios' | 'suscripcion'>('configuracion');
+    const [tab, setTab] = useState<'configuracion' | 'modulos' | 'usuarios' | 'suscripcion' | 'accesos'>('configuracion');
 
     const [mods, setMods] = useState<ModRow[]>([]);
     const [perms, setPerms] = useState<PermRow[]>([]);
@@ -186,12 +136,9 @@ export default function EmpresaDetailPage() {
     const [categoriaNegocio, setCategoriaNegocio] = useState('');
     const [capabilityValues, setCapabilityValues] = useState<Record<string, boolean>>({});
     const [q, setQ] = useState('');
-    const [permQ, setPermQ] = useState('');
     const [loading, setLoading] = useState(false);
-    const [operationalNotice, setOperationalNotice] = useState<string | null>(null);
 
     // NUEVO: módulo seleccionado para la vista permisos
-    const [selectedModuleKey, setSelectedModuleKey] = useState<string | null>(null);
 
     // opcional: ver permisos que no están mapeados (por defecto: NO)
     const load = async () => {
@@ -221,43 +168,7 @@ export default function EmpresaDetailPage() {
      *  2) Índices y sets útiles
      *  ===========================
      */
-    const effectiveCapabilities = useMemo(() => {
-        const map = new Map<string, boolean>();
-        for (const [code, enabled] of Object.entries(businessConfig?.capacidades ?? {})) {
-            map.set(normCode(code), Boolean(enabled));
-        }
-        for (const cap of businessConfig?.capacidades_detalle ?? []) {
-            const code = normCode(cap.codigo_capacidad);
-            if (!map.has(code)) {
-                map.set(code, Boolean(cap.enabled));
-            }
-        }
-        return map;
-    }, [businessConfig]);
-
-    const isCapabilityEffective = useCallback((code?: string | null): boolean => {
-        if (!code) return true;
-        return effectiveCapabilities.get(normCode(code)) === true;
-    }, [effectiveCapabilities]);
-
-    const isModuleRestrictedByCapability = useCallback((module: ModRow): boolean => {
-        const gate = moduleGateKey(module);
-        if (!gate) return false;
-        const rule = SAAS_MODULE_GATES[gate];
-        return rule ? !isCapabilityEffective(rule.capabilityCode) : false;
-    }, [isCapabilityEffective]);
-
-    const isPermissionRestrictedByCapability = useCallback((code: string): boolean => {
-        const rule = SAAS_PERMISSION_GATES[normCode(code)];
-        return rule ? !isCapabilityEffective(rule.capabilityCode) : false;
-    }, [isCapabilityEffective]);
-
-    const visiblePermissionGroups = useMemo(() => buildPermissionGroups(perms), [perms]);
     const visibleMods = useMemo(() => mods.filter((m) => !isRetiredReportsModule(m)), [mods]);
-    const extraPermissionGroups = useMemo(
-        () => unmatchedPermissionGroups(visibleMods, visiblePermissionGroups),
-        [visibleMods, visiblePermissionGroups]
-    );
 
     const filteredMods = useMemo(() => {
         const s = q.trim().toLowerCase();
@@ -290,60 +201,6 @@ export default function EmpresaDetailPage() {
             String(cap.descripcion ?? '').toLowerCase().includes(s)
         );
     }, [businessConfig, q]);
-
-    const saveMods = async () => {
-        const items = mods.map(m => ({
-            id_modulo: m.id_modulo,
-            enabled: !isRetiredReportsModule(m) && !!m.enabled,
-        }));
-        try {
-            const r = await saveEmpresaModulos(idEmpresa, items);
-            await load();
-            if (isSyncPending(r.sync)) {
-                setOperationalNotice('Los cambios locales fueron guardados y el tenant sera sincronizado automaticamente mediante reintento.');
-                return;
-            }
-            setOperationalNotice(null);
-            await Swal.fire({ icon: 'success', title: 'Guardado', text: `Modulos guardados (${r.saved})` });
-        } catch (error: unknown) {
-            if (isSaasCapabilityValidation(error)) {
-                await Swal.fire({
-                    icon: 'warning',
-                    title: 'Capacidad SaaS requerida',
-                    text: 'Este recurso requiere una capacidad que no esta incluida en el plan o la suscripcion de la empresa.',
-                    confirmButtonText: 'Entendido',
-                });
-                return;
-            }
-            await Swal.fire({ icon: 'error', title: 'Error', text: 'No se pudieron guardar los modulos.' });
-        }
-    };
-
-    const savePerms = async () => {
-        const items = perms.map(p => ({
-            id_permiso: p.id_permiso,
-            enabled: !!p.enabled,
-        }));
-        try {
-            const r = await saveEmpresaPermisos(idEmpresa, items);
-            await load();
-            if (isSyncPending(r.sync)) {
-                setOperationalNotice('Los cambios locales fueron guardados y el tenant sera sincronizado automaticamente mediante reintento.');
-                return;
-            }
-            setOperationalNotice(null);
-            await Swal.fire({ icon: 'success', title: 'Guardado', text: `Permisos guardados (${r.saved})` });
-        } catch (error: unknown) {
-            await load();
-            await Swal.fire({
-                icon: isSaasCapabilityValidation(error) ? 'warning' : 'error',
-                title: 'No se pudieron guardar los permisos',
-                text: apiErrorMessage(error, 'No se pudieron guardar los permisos.'),
-                confirmButtonText: 'Entendido',
-            });
-        }
-    };
-
 
     const verifyTenant = async () => {
         setTenantChecking(true);
@@ -528,54 +385,6 @@ export default function EmpresaDetailPage() {
         }
     };
 
-    /** ===========================
-     *  3) Permisos por módulo (solo usados)
-     *  ===========================
-     */
-    const selectedPermissionGroups = useMemo<PermissionGroup[]>(() => {
-        if (!selectedModuleKey) return [];
-        if (selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY) return extraPermissionGroups;
-        const group = visiblePermissionGroups.find((item) => item.key === selectedModuleKey);
-        return group ? [group] : [];
-    }, [extraPermissionGroups, selectedModuleKey, visiblePermissionGroups]);
-
-    const selectedPermissionTitle = selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY
-        ? 'Mas permisos'
-        : selectedPermissionGroups[0]?.label ?? 'Permisos';
-
-    const selectedGroupHasRestrictedPermissions = useMemo(() => {
-        return selectedPermissionGroups.some((group) =>
-            group.items.some((item) => isPermissionRestrictedByCapability(normCode(item.codigo)))
-        );
-    }, [isPermissionRestrictedByCapability, selectedPermissionGroups]);
-
-    const modulePermRows = useMemo(() => {
-        const s = permQ.trim().toLowerCase();
-        return selectedPermissionGroups
-            .flatMap((group) =>
-                group.items.map((row) => ({
-                    code: normCode(row.codigo),
-                    groupLabel: group.label,
-                    row,
-                }))
-            )
-            .filter(({ code, groupLabel, row }) => {
-                if (!s) return true;
-                return code.toLowerCase().includes(s)
-                    || String(row.descripcion ?? '').toLowerCase().includes(s)
-                    || groupLabel.toLowerCase().includes(s);
-            });
-    }, [permQ, selectedPermissionGroups]);
-
-    const moduleStats = useMemo(() => {
-        const total = selectedPermissionGroups.reduce((acc, group) => acc + group.items.length, 0);
-        const enabled = selectedPermissionGroups.reduce(
-            (acc, group) => acc + group.items.filter((item) => !!item.enabled).length,
-            0
-        );
-        return { total, enabled };
-    }, [selectedPermissionGroups]);
-
     const selectedBusinessCategory = useMemo(
         () => (businessConfig?.categorias_disponibles ?? []).find((item) => item.codigo === categoriaNegocio) ?? null,
         [businessConfig, categoriaNegocio]
@@ -614,8 +423,15 @@ export default function EmpresaDetailPage() {
                     >
                         Suscripcion
                     </button>
+                    <button
+                        className={`btn btn-sm ${tab === 'accesos' ? 'btn-primary' : 'btn-outline-primary'}`}
+                        onClick={() => setTab('accesos')}
+                    >
+                        Accesos comerciales
+                    </button>
                 </div>
 
+                {tab !== 'accesos' && (
                 <input
                     className="form-control"
                     placeholder={
@@ -629,41 +445,21 @@ export default function EmpresaDetailPage() {
                     onChange={(e) => setQ(e.target.value)}
                     style={{ maxWidth: 420 }}
                 />
+                )}
 
                 <div className="ms-auto d-flex gap-2 align-items-center">
                     {tab === 'configuracion' ? (
                         <button className="btn btn-primary btn-sm" onClick={saveBusinessConfig} disabled={loading || !businessConfig}>
                             Guardar configuración
                         </button>
-                    ) : tab === 'modulos' ? (
-                        <>
-                            <button
-                                className="btn btn-outline-primary btn-sm"
-                                type="button"
-                                onClick={() => {
-                                    setPermQ('');
-                                    setSelectedModuleKey(EXTRA_PERMISSION_GROUPS_KEY);
-                                }}
-                                disabled={extraPermissionGroups.length === 0}
-                            >
-                                Más permisos
-                            </button>
-                            <button className="btn btn-primary btn-sm" onClick={saveMods} disabled={loading}>
-                                Guardar módulos
-                            </button>
-                        </>
                     ) : null}
                 </div>
             </div>
 
-            {operationalNotice && (
-                <div className="alert alert-info py-2 mb-3 small">
-                    {operationalNotice}
-                </div>
-            )}
-
             {loading ? (
                 <div className="py-4">Cargando...</div>
+            ) : tab === 'accesos' ? (
+                <CommercialAccessPanel idEmpresa={idEmpresa} modulos={visibleMods} permisos={perms} />
             ) : tab === 'suscripcion' ? (
                 <SaasSubscriptionPanel idEmpresa={idEmpresa} onSynced={load} />
             ) : tab === 'configuracion' ? (
@@ -993,65 +789,25 @@ export default function EmpresaDetailPage() {
                     </div>
                 </div>
             ) : tab === 'modulos' ? (
-                <div className="table-responsive">
-                    <table className="table table-sm align-middle">
-                        <thead>
-                            <tr>
-                                <th style={{ width: 90 }}>ID</th>
-                                <th>Módulo</th>
-                                <th>Ruta</th>
-                                <th style={{ width: 110 }}>Habilitar</th>
-                                <th style={{ width: 140 }}>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredMods.map(m => {
-                                const restricted = isModuleRestrictedByCapability(m);
-                                const gate = moduleGateKey(m);
-                                const gateLabel = gate ? SAAS_MODULE_GATES[gate]?.label : null;
-                                const permissionGroup = findPermissionGroupForModule(m, visiblePermissionGroups);
-                                return (
-                                    <tr key={m.id_modulo}>
-                                        <td>{m.id_modulo}</td>
-                                        <td style={{ fontWeight: 600 }}>
-                                            {m.nombre}
-                                            {restricted && (
-                                                <div className="text-muted" style={{ fontSize: 12, fontWeight: 400 }}>
-                                                    Restringido por capacidad SaaS: {gateLabel}
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td style={{ fontSize: 12, opacity: 0.8 }}>{m.ruta || '-'}</td>
-                                        <td>
-                                            <input
-                                                type="checkbox"
-                                                className="form-check-input"
-                                                checked={!!m.enabled}
-                                                onChange={(e) => {
-                                                    const v = e.target.checked;
-                                                    setMods(prev => prev.map(x => x.id_modulo === m.id_modulo ? { ...x, enabled: v } : x));
-                                                }}
-                                            />
-                                        </td>
-                                        <td>
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline-primary btn-sm"
-                                                disabled={!permissionGroup}
-                                                onClick={() => {
-                                                    if (!permissionGroup) return;
-                                                    setPermQ('');
-                                                    setSelectedModuleKey(permissionGroup.key);
-                                                }}
-                                            >
-                                                Ver permisos
-                                            </button>
-                                        </td>
+                <div>
+                    <div className="alert alert-info py-2 small" role="status">
+                        Los accesos se administran desde Accesos comerciales mediante plan, complementos y excepciones auditadas.
+                    </div>
+                    <div className="table-responsive">
+                        <table className="table table-sm align-middle">
+                            <thead><tr><th style={{ width: 90 }}>ID</th><th>Módulo</th><th>Ruta</th><th style={{ width: 120 }}>Estado</th></tr></thead>
+                            <tbody>
+                                {filteredMods.length === 0 ? <tr><td colSpan={4} className="text-muted py-3">No hay módulos para mostrar.</td></tr> : filteredMods.map((module) => (
+                                    <tr key={module.id_modulo}>
+                                        <td>{module.id_modulo}</td>
+                                        <td style={{ fontWeight: 600 }}>{module.nombre}</td>
+                                        <td style={{ fontSize: 12, opacity: 0.8 }}>{module.ruta || '-'}</td>
+                                        <td><span className={`badge ${module.enabled ? 'bg-success' : 'bg-secondary'}`}>{module.enabled ? 'Activo' : 'Desactivado'}</span></td>
                                     </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             ) : (
                 <div className="table-responsive">
@@ -1098,133 +854,6 @@ export default function EmpresaDetailPage() {
                 </div>
             )}
 
-            {selectedModuleKey && (
-                <>
-                    <div className="modal d-block" tabIndex={-1} role="dialog" aria-modal="true">
-                        <div className="modal-dialog modal-lg modal-dialog-scrollable">
-                            <div className="modal-content">
-                                <div className="modal-header">
-                                    <div>
-                                        <h5 className="modal-title mb-0">Permisos de {selectedPermissionTitle}</h5>
-                                        <div className="text-muted" style={{ fontSize: 12 }}>
-                                            {moduleStats.enabled}/{moduleStats.total} habilitados
-                                            {selectedGroupHasRestrictedPermissions ? ' - techo SaaS inactivo' : ''}
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        className="btn-close"
-                                        aria-label="Cerrar"
-                                        onClick={() => setSelectedModuleKey(null)}
-                                    />
-                                </div>
-                                <div className="modal-body">
-                                    {selectedGroupHasRestrictedPermissions && (
-                                        <div className="alert alert-warning py-2">
-                                            <small>
-                                                La capacidad SaaS requerida esta inactiva. Puedes guardar restricciones locales, pero el backend validara cualquier alta fuera del techo comercial.
-                                            </small>
-                                        </div>
-                                    )}
-
-                                    {selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY && extraPermissionGroups.length === 0 && (
-                                        <div className="alert alert-info py-2">
-                                            <small>
-                                                No hay permisos adicionales disponibles fuera de los módulos visibles.
-                                            </small>
-                                        </div>
-                                    )}
-
-                                    <input
-                                        className="form-control form-control-sm mb-3"
-                                        placeholder="Filtrar permisos..."
-                                        value={permQ}
-                                        onChange={(e) => setPermQ(e.target.value)}
-                                    />
-
-                                    <div className="table-responsive">
-                                        <table className="table table-sm align-middle mb-0">
-                                            <thead>
-                                                <tr>
-                                                    <th>Codigo</th>
-                                                    <th>Descripcion</th>
-                                                    <th style={{ width: 110 }}>Habilitar</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {modulePermRows.length === 0 ? (
-                                                    <tr>
-                                                        <td colSpan={3} className="text-muted py-3">
-                                                            No hay permisos para mostrar.
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    modulePermRows.map(({ code, groupLabel, row }) => {
-                                                        const restricted = isPermissionRestrictedByCapability(code);
-                                                        const kind = permissionKind(code);
-                                                        return (
-                                                            <tr key={code}>
-                                                                <td style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 }}>
-                                                                    <div>{code}</div>
-                                                                    <span className={`badge ${kind.className} mt-1`}>
-                                                                        {kind.label}
-                                                                    </span>
-                                                                    {selectedModuleKey === EXTRA_PERMISSION_GROUPS_KEY && (
-                                                                        <span className="badge text-bg-secondary mt-1 ms-1">
-                                                                            {groupLabel}
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td style={{ fontSize: 12, opacity: 0.85 }}>
-                                                                    {row.descripcion || '-'}
-                                                                    {restricted && (
-                                                                        <div className="text-muted mt-1">
-                                                                            Bloqueado por capacidad SaaS inactiva.
-                                                                        </div>
-                                                                    )}
-                                                                </td>
-                                                                <td>
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        className="form-check-input"
-                                                                        checked={!!row.enabled}
-                                                                        onChange={(e) => {
-                                                                            const v = e.target.checked;
-                                                                            setPerms(prev => prev.map(x => x.id_permiso === row.id_permiso ? { ...x, enabled: v } : x));
-                                                                        }}
-                                                                    />
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div className="modal-footer">
-                                    <button
-                                        type="button"
-                                        className="btn btn-outline-secondary"
-                                        onClick={() => setSelectedModuleKey(null)}
-                                    >
-                                        Cerrar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="btn btn-primary"
-                                        onClick={savePerms}
-                                        disabled={loading}
-                                    >
-                                        Guardar permisos
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="modal-backdrop fade show" />
-                </>
-            )}
         </PageLayout>
     );
 }

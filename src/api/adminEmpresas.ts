@@ -292,3 +292,218 @@ export async function getEmpresaUsuarioAdmin(idEmpresa: number) {
   const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/usuario-admin`);
   return data as { ok: boolean; id_empresa: number; item: EmpresaAdminUsuarioItem };
 }
+
+export type EntitlementOrigin = 'PLAN' | 'COMPLEMENTO' | 'EXCEPCION_INTERNA' | string;
+
+export type EmpresaAccesoEfectivoModulo = {
+  id_modulo: number;
+  ruta: string;
+  nombre: string;
+  origen: EntitlementOrigin;
+};
+
+export type EmpresaAccesoEfectivoPermiso = {
+  id_permiso: number;
+  codigo: string;
+  nombre: string;
+  descripcion: string;
+  grupo_ui: string;
+  grupo_ui_nombre: string;
+  orden_ui: number;
+  id_modulo_asociado: number | null;
+  ruta_modulo_asociado: string | null;
+  origen: EntitlementOrigin;
+};
+
+export type MotivoPermisoNoDisponible =
+  | 'NO_INCLUIDO_PLAN'
+  | 'REQUIERE_COMPLEMENTO'
+  | 'RESTRINGIDO_EXCEPCION'
+  | 'NO_DISPONIBLE';
+
+export type EmpresaPermisoNoDisponible = {
+  id_permiso: number;
+  codigo: string;
+  nombre: string;
+  descripcion: string;
+  grupo_ui: string;
+  grupo_ui_nombre: string;
+  orden_ui: number;
+  id_modulo_asociado: number | null;
+  ruta_modulo_asociado: string | null;
+  motivo: MotivoPermisoNoDisponible;
+};
+
+export type EmpresaEntitlementExcepcion = {
+  id_excepcion: number;
+  id_empresa?: number;
+  tipo: 'MODULO' | 'PERMISO';
+  id_modulo?: number | null;
+  id_permiso?: number | null;
+  recurso: {
+    ruta?: string;
+    codigo?: string;
+    nombre: string;
+  };
+  enabled: boolean;
+  estado: 'HABILITADA' | 'RESTRINGIDA';
+  motivo: string;
+  actor: {
+    id_superadmin: number | null;
+    email: string | null;
+  };
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type EmpresaAccesosEfectivos = {
+  modo_entitlements: 'legacy' | 'plans';
+  suscripcion: {
+    id_plan: number;
+    plan_codigo: string;
+    plan_nombre: string;
+    estado: string;
+    ciclo: string;
+  } | null;
+  modulos: EmpresaAccesoEfectivoModulo[];
+  permisos: EmpresaAccesoEfectivoPermiso[];
+  permisos_no_disponibles: EmpresaPermisoNoDisponible[];
+  modulos_agrupados?: Record<string, EmpresaAccesoEfectivoModulo[]>;
+  permisos_agrupados?: Record<string, EmpresaAccesoEfectivoPermiso[]>;
+  complementos?: EmpresaComplementoActivacion[];
+  excepciones: EmpresaEntitlementExcepcion[];
+  capacidades_efectivas: unknown[];
+};
+
+export async function getEmpresaAccesosEfectivos(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/accesos-efectivos`);
+  return data as { ok: boolean; id_empresa: number; accesos: EmpresaAccesosEfectivos };
+}
+
+export async function getEmpresaEntitlementExcepciones(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/entitlement-excepciones`);
+  return data as { ok: boolean; id_empresa: number; items: EmpresaEntitlementExcepcion[] };
+}
+
+export type EmpresaComplementoElegible = {
+  id_complemento: number;
+  codigo: string;
+  nombre: string;
+  descripcion?: string | null;
+  activo: boolean;
+  tipo_comercial: 'COMPLEMENTO' | 'SOLO_INTERNO' | string;
+  valor_mensual: number;
+  valor_anual: number;
+  plan_actual?: string;
+  compatible: boolean;
+  dependencias_cumplidas: boolean;
+  estado_activacion?: string | null;
+  elegible: boolean;
+  estado_comercial:
+    | 'ACTIVABLE'
+    | 'INCLUIDO_EN_PLAN'
+    | 'BLOQUEADO_CAPACIDAD'
+    | 'INCOMPATIBLE_PLAN'
+    | 'REQUIERE_DEPENDENCIA'
+    | 'CATALOGO_INACTIVO'
+    | 'SIN_RECURSOS'
+    | string;
+  incluido_en_plan: boolean;
+  recursos: {
+    modulos: { total: number; incluidos_en_plan: number; adicionales: number };
+    permisos: { total: number; incluidos_en_plan: number; adicionales: number };
+    capacidades: { total: number; incluidos_en_plan: number; adicionales: number };
+  };
+  capacidades_requeridas_faltantes: string[];
+};
+
+export type EmpresaComplementoActivacion = {
+  id_empresa_saas_complemento: number;
+  codigo: string;
+  nombre: string;
+  tipo_comercial: 'COMPLEMENTO' | 'SOLO_INTERNO' | string;
+  estado: string;
+  compatible: boolean;
+  efectiva: boolean;
+  valor_mensual_acordado: number;
+  valor_anual_acordado: number;
+  ciclo_cobro: 'MENSUAL' | 'ANUAL' | string;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+  medio_pago: string | null;
+  referencia_pago: string | null;
+  observacion: string | null;
+  actor: { id_superadmin: number | null; email: string | null };
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type SaasComplementoCatalogo = Omit<EmpresaComplementoElegible,
+  | 'plan_actual'
+  | 'compatible'
+  | 'dependencias_cumplidas'
+  | 'estado_activacion'
+  | 'elegible'
+  | 'estado_comercial'
+  | 'incluido_en_plan'
+  | 'recursos'
+  | 'capacidades_requeridas_faltantes'
+> & {
+  planes_compatibles?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type ActivateEmpresaComplementoPayload = {
+  ciclo_cobro: 'MENSUAL' | 'ANUAL';
+  fecha_inicio?: string;
+  fecha_fin?: string | null;
+  valor_mensual_acordado: number;
+  valor_anual_acordado: number;
+  medio_pago?: string;
+  referencia_pago?: string;
+  observacion?: string;
+};
+
+export async function getEmpresaComplementosElegibles(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/complementos/elegibles`);
+  return data as { ok: boolean; id_empresa: number; items: EmpresaComplementoElegible[] };
+}
+
+export async function getEmpresaComplementos(idEmpresa: number) {
+  const { data } = await adminClient.get(`/admin/empresas/${idEmpresa}/complementos`);
+  return data as { ok: boolean; id_empresa: number; items: EmpresaComplementoActivacion[] };
+}
+
+export async function getSaasComplementos() {
+  const { data } = await adminClient.get('/admin/saas/complementos');
+  return data as { ok: boolean; items: SaasComplementoCatalogo[] };
+}
+
+export async function activateEmpresaComplemento(
+  idEmpresa: number,
+  codigo: string,
+  payload: ActivateEmpresaComplementoPayload,
+) {
+  const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/complementos/${codigo}`, payload);
+  return data as { ok: boolean; item: EmpresaComplementoActivacion };
+}
+
+export async function deactivateEmpresaComplemento(idEmpresa: number, codigo: string, observacion?: string) {
+  const { data } = await adminClient.patch(`/admin/empresas/${idEmpresa}/complementos/${codigo}/desactivar`, { observacion });
+  return data as { ok: boolean; item: EmpresaComplementoActivacion };
+}
+
+export async function restoreEmpresaComplemento(idEmpresa: number, codigo: string, observacion?: string) {
+  const { data } = await adminClient.patch(`/admin/empresas/${idEmpresa}/complementos/${codigo}/restaurar`, { observacion });
+  return data as { ok: boolean; item: EmpresaComplementoActivacion };
+}
+
+export async function applyEmpresaExcepcionInterna(
+  idEmpresa: number,
+  codigo: string,
+  payload: { enabled: boolean; motivo: string },
+) {
+  const { data } = await adminClient.put(`/admin/empresas/${idEmpresa}/excepciones-internas/${codigo}`, payload);
+  return data as { ok: boolean; item: { modulos: number; permisos: number; capacidades: number } };
+}
