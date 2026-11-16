@@ -23,9 +23,7 @@ vi.mock('../../api/adminEmpresas', async (importOriginal) => {
   return {
     ...actual,
     getEmpresaModulos: vi.fn(),
-    saveEmpresaModulos: vi.fn(),
     getEmpresaPermisos: vi.fn(),
-    saveEmpresaPermisos: vi.fn(),
     getEmpresaUsuarios: vi.fn(),
     getEmpresaConfiguracionNegocio: vi.fn(),
     saveEmpresaConfiguracionNegocio: vi.fn(),
@@ -179,6 +177,30 @@ describe('EmpresaDetailPage business configuration save', () => {
     })));
   });
 
+  it('mantiene Módulos como historial técnico sin edición directa', async () => {
+    getEmpresaModulosMock.mockResolvedValue({
+      ok: true,
+      id_empresa: 2,
+      items: [{
+        id_modulo: 8,
+        nombre: 'Caja',
+        ruta: '/caja-sesion',
+        orden: 1,
+        estado: 1,
+        enabled: true,
+      }],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /M.dulos/ }));
+
+    expect(await screen.findByText('Caja')).toBeInTheDocument();
+    expect(screen.getByText('Los accesos se administran desde Accesos comerciales mediante plan, complementos y excepciones auditadas.')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Guardar m.dulos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /M.s permisos/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ver permisos/i })).not.toBeInTheDocument();
+  });
+
   it('restaura datos y muestra advertencia cuando Lotes esta en uso', async () => {
     saveEmpresaConfiguracionNegocioMock.mockRejectedValue(backendError('CAPACIDAD_LOTES_EN_USO'));
 
@@ -326,4 +348,5 @@ describe('EmpresaDetailPage business configuration save', () => {
       text: 'No se pudo verificar el uso de seriales e IMEI en el tenant. No se realizaron cambios.',
     }));
   });
+
 });
